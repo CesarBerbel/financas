@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum FinancialProfileType {
+  PERSONAL_BRAZIL
+  PERSONAL_PORTUGAL
+  BUSINESS_PORTUGAL
+}
+
+enum FinancialProfileStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum AuditAction {
+  USER_REGISTERED
+  PROFILE_CREATED
+  PROFILE_UPDATED
+  PROFILE_SWITCHED
+}
+
+model User {
+  id               String             @id @default(cuid())
+  name             String
+  email            String             @unique
+  passwordHash     String
+  locale           String             @default("pt-PT")
+  timezone         String             @default("Europe/Lisbon")
+  mfaEnabled       Boolean            @default(false)
+  trustedDevices   Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  profiles         FinancialProfile[]
+  sessions         Session[]
+  auditLogs        AuditLog[]
+}
+
+model Currency {
+  code      String             @id
+  name      String
+  symbol    String
+  createdAt DateTime           @default(now())
+  profiles  FinancialProfile[]
+}
+
+model FinancialProfile {
+  id           String                 @id @default(cuid())
+  userId       String
+  name         String
+  type         FinancialProfileType
+  baseCurrency String
+  status       FinancialProfileStatus @default(ACTIVE)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency     Currency               @relation(fields: [baseCurrency], references: [code])
+
+  @@unique([userId, type])
+  @@index([userId, status])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String
+  action     AuditAction
+  entityType String
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime    @default(now())
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
