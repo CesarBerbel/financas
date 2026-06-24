@@ -15,3 +15,18 @@ form { display: grid; gap: 14px; }
 .muted { color: var(--muted); }
 .alert { border-radius: 12px; padding: 12px; background: #fff7ed; border: 1px solid #fed7aa; }
 .alert.success { background: #f0fdf4; border-color: #bbf7d0; }
+.stack { display: grid; gap: 20px; }
+.form-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.full-width { grid-column: 1 / -1; }
+.table-card { overflow-x: auto; background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05); }
+table { width: 100%; border-collapse: collapse; min-width: 760px; }
+th, td { text-align: left; padding: 14px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: #f1f5f9; font-size: 0.9rem; }
+tr:last-child td { border-bottom: 0; }
+.badge { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 999px; background: #e2e8f0; font-weight: 700; font-size: 0.85rem; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn.small { min-height: 36px; padding: 0 10px; font-size: 0.85rem; }
+.btn.danger { background: #991b1b; border-color: #991b1b; color: white; }
+.metric { display: block; font-size: clamp(1.6rem, 4vw, 2.4rem); margin-top: 8px; }
+.empty-state { border-style: dashed; }
+@media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } main { padding: 24px 14px; } }

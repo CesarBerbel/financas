@@ -18,11 +18,30 @@ enum FinancialProfileStatus {
   ARCHIVED
 }
 
+enum AccountType {
+  CHECKING
+  SAVINGS
+  WALLET
+  INVESTMENT
+  BUSINESS
+  RESERVE
+}
+
+enum AccountStatus {
+  ACTIVE
+  ARCHIVED
+  CLOSED
+}
+
 enum AuditAction {
   USER_REGISTERED
   PROFILE_CREATED
   PROFILE_UPDATED
   PROFILE_SWITCHED
+  ACCOUNT_CREATED
+  ACCOUNT_UPDATED
+  ACCOUNT_ARCHIVED
+  ACCOUNT_CLOSED
 }
 
 model User {
@@ -47,6 +66,7 @@ model Currency {
   symbol    String
   createdAt DateTime           @default(now())
   profiles  FinancialProfile[]
+  accounts  Account[]
 }
 
 model FinancialProfile {
@@ -60,9 +80,31 @@ model FinancialProfile {
   updatedAt    DateTime               @updatedAt
   user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   currency     Currency               @relation(fields: [baseCurrency], references: [code])
+  accounts     Account[]
 
   @@unique([userId, type])
   @@index([userId, status])
+}
+
+model Account {
+  id                String           @id @default(cuid())
+  financialProfileId String
+  name              String
+  type              AccountType
+  currencyCode      String
+  initialBalance    Decimal          @default(0) @db.Decimal(18, 2)
+  currentBalance    Decimal          @default(0) @db.Decimal(18, 2)
+  reconciledBalance Decimal          @default(0) @db.Decimal(18, 2)
+  projectedBalance  Decimal          @default(0) @db.Decimal(18, 2)
+  status            AccountStatus    @default(ACTIVE)
+  description       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  financialProfile  FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+  currency          Currency         @relation(fields: [currencyCode], references: [code])
+
+  @@index([financialProfileId, status])
+  @@index([currencyCode])
 }
 
 model Session {
