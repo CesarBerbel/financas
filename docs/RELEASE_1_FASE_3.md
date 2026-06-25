@@ -90,3 +90,15 @@ Todos os formulários de criação/edição das entidades atuais foram padroniza
 As listas continuam visíveis ao fundo para preservar contexto, e mensagens de erro dos formulários aparecem dentro do respectivo modal. Filtros e relatórios continuam inline porque não criam nem editam entidades.
 
 Sem migration neste ajuste.
+
+## Hardening QA antes da Release 2
+
+Antes de iniciar a Release 2, foram adicionados testes automatizados e uma CI robusta de validação:
+
+- GitHub Actions em `.github/workflows/ci.yml`.
+- Testes E2E da API com PostgreSQL real.
+- Testes de componente web para modais de transações e criação inline de categoria.
+- Ambiente local isolado em `docker-compose.test.yml`.
+- Documento de estratégia e critérios em `docs/QA_RELEASE_1.md`.
+
+Não houve migration neste hardening.
