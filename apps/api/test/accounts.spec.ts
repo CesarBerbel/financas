@@ -52,7 +52,10 @@ describe('AccountsService', () => {
 
 
   it('does not include closed accounts in operational list', async () => {
-    const prisma = { account: { findMany: jest.fn().mockResolvedValue([]) } } as any;
+    const prisma = {
+      account: { findMany: jest.fn().mockResolvedValue([]) },
+      financialProfile: { findFirst: jest.fn().mockResolvedValue({ id: 'profile-1' }) },
+    } as any;
     const service = new AccountsService(prisma);
 
     await service.list('user-a', 'profile-1');

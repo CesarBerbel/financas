@@ -15,6 +15,20 @@ const mockAuthApi = vi.mocked(authApi);
 const profile = { id: 'profile-1', name: 'Pessoal Portugal', type: 'PERSONAL_PORTUGAL', baseCurrency: 'EUR', status: 'ACTIVE' };
 const account = { id: 'account-1', financialProfileId: 'profile-1', name: 'Conta principal', currencyCode: 'EUR', status: 'ACTIVE' };
 const baseCategory = { id: 'category-1', financialProfileId: 'profile-1', parentId: null, name: 'Alimentação', fullName: 'Alimentação', financialProfile: profile, parent: null };
+const transaction = {
+  id: 'transaction-1',
+  financialProfileId: 'profile-1',
+  accountId: 'account-1',
+  type: 'EXPENSE',
+  amount: '10.00',
+  currencyCode: 'EUR',
+  description: 'Mercado',
+  occurredAt: '2026-06-20',
+  financialProfile: profile,
+  account,
+  category: null,
+  tags: [],
+};
 
 function mockDefaultApiResponses() {
   let categories = [baseCategory];
@@ -22,7 +36,7 @@ function mockDefaultApiResponses() {
     if (path === '/financial-profiles') return [profile];
     if (path === '/accounts') return [account];
     if (path === '/categories' && !options?.method) return categories;
-    if (path === '/transactions') return [];
+    if (path === '/transactions') return [transaction];
     if (path === '/categories' && options?.method === 'POST') {
       const created = { ...baseCategory, id: 'category-2', name: 'Saúde', fullName: 'Saúde' };
       categories = [...categories, created];
