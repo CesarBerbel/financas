@@ -1,7 +1,7 @@
 import { AccountStatus, AccountType } from '@prisma/client';
 import { IsDecimal, IsEnum, IsIn, IsNotEmpty, IsOptional, IsString, Length } from 'class-validator';
 
-const supportedCurrencies = ['BRL', 'EUR'] as const;
+const supportedCurrencies = ['BRL', 'EUR', 'USD'] as const;
 
 export class CreateAccountDto {
   @IsString()
@@ -16,7 +16,7 @@ export class CreateAccountDto {
   type!: AccountType;
 
   @IsIn(supportedCurrencies)
-  currencyCode!: 'BRL' | 'EUR';
+  currencyCode!: 'BRL' | 'EUR' | 'USD';
 
   @IsOptional()
   @IsDecimal({ decimal_digits: '0,2' })

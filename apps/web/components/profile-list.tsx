@@ -18,17 +18,26 @@ const profileTypes = [
   { value: 'PERSONAL_BRAZIL', label: 'Pessoal Brasil' },
   { value: 'PERSONAL_PORTUGAL', label: 'Pessoal Portugal' },
   { value: 'BUSINESS_PORTUGAL', label: 'Empresarial Portugal' },
+  { value: 'BUSINESS_USA', label: 'Empresarial USA' },
 ];
 
 const currencies = [
   { value: 'BRL', label: 'BRL - Real brasileiro' },
   { value: 'EUR', label: 'EUR - Euro' },
+  { value: 'USD', label: 'USD - Dólar americano' },
 ];
 
 const emptyForm: ProfileFormState = {
   name: '',
   type: 'PERSONAL_PORTUGAL',
   baseCurrency: 'EUR',
+};
+
+const defaultCurrencyByProfileType: Record<string, string> = {
+  PERSONAL_BRAZIL: 'BRL',
+  PERSONAL_PORTUGAL: 'EUR',
+  BUSINESS_PORTUGAL: 'EUR',
+  BUSINESS_USA: 'USD',
 };
 
 function profileTypeLabel(type: string) {
@@ -88,6 +97,14 @@ export function ProfileList() {
   function cancelForm() {
     setFormState(emptyForm);
     setMode('list');
+  }
+
+  function updateProfileType(type: string) {
+    setFormState((current) => ({
+      ...current,
+      type,
+      baseCurrency: defaultCurrencyByProfileType[type] ?? current.baseCurrency,
+    }));
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -166,7 +183,7 @@ export function ProfileList() {
             Tipo
             <select
               value={formState.type}
-              onChange={(event) => setFormState((current) => ({ ...current, type: event.target.value }))}
+              onChange={(event) => updateProfileType(event.target.value)}
               required
               disabled={isSubmitting}
             >
@@ -198,7 +215,7 @@ export function ProfileList() {
       <div className="page-header">
         <div>
           <h2 id="profiles-title">Gerenciar perfis</h2>
-          <p className="muted">Crie, edite e organize perfis para manter Brasil, Portugal pessoal e empresa separados.</p>
+          <p className="muted">Crie, edite e organize perfis em BRL, EUR ou USD para manter contextos financeiros separados.</p>
         </div>
         <button className="btn" type="button" onClick={openCreateForm}>Adicionar perfil</button>
       </div>
@@ -217,26 +234,28 @@ export function ProfileList() {
           <button className="btn" type="button" onClick={openCreateForm}>Adicionar primeiro perfil</button>
         </div>
       ) : (
-        <div className="table-card" role="region" aria-label="Lista de perfis financeiros">
-          <table>
-            <thead>
-              <tr><th>Perfil</th><th>Tipo</th><th>Moeda base</th><th>Status</th><th>Ações</th></tr>
-            </thead>
-            <tbody>
-              {profiles.map((profile) => (
-                <tr key={profile.id}>
-                  <td><strong>{profile.name}</strong></td>
-                  <td>{profileTypeLabel(profile.type)}</td>
-                  <td>{profile.baseCurrency}</td>
-                  <td><span className="badge">{statusLabel(profile.status)}</span></td>
-                  <td className="actions">
-                    <button className="btn secondary small" type="button" onClick={() => openEditForm(profile)}>Editar</button>
-                    {profile.status === 'ACTIVE' && <button className="btn danger small" type="button" onClick={() => void archiveProfile(profile.id)}>Arquivar</button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="card-list" aria-label="Lista de perfis financeiros">
+          {profiles.map((profile) => (
+            <article className="card entity-card" key={profile.id}>
+              <div className="entity-card-main">
+                <div>
+                  <h3>{profile.name}</h3>
+                  <p className="muted">{profileTypeLabel(profile.type)}</p>
+                </div>
+                <span className="badge">{statusLabel(profile.status)}</span>
+              </div>
+
+              <div className="entity-card-details">
+                <p><span className="muted">Moeda base</span><strong>{profile.baseCurrency}</strong></p>
+                <p><span className="muted">Status</span><strong>{statusLabel(profile.status)}</strong></p>
+              </div>
+
+              <div className="actions">
+                <button className="btn secondary small" type="button" onClick={() => openEditForm(profile)}>Editar</button>
+                {profile.status === 'ACTIVE' && <button className="btn danger small" type="button" onClick={() => void archiveProfile(profile.id)}>Arquivar</button>}
+              </div>
+            </article>
+          ))}
         </div>
       )}
     </section>

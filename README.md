@@ -103,3 +103,100 @@ pnpm prisma:generate
 pnpm --filter api start:dev
 pnpm --filter web dev
 ```
+
+## Ajuste Fase 1 - Dashboard, contas e perfis
+
+O dashboard da Fase 1 foi simplificado para exibir apenas quantidade de contas e saldo consolidado. A gestão detalhada ficou nas páginas próprias:
+
+- `/accounts`: lista de contas em cards, botão para adicionar nova conta e ações de editar, arquivar e fechar.
+- `/profiles`: lista de perfis em cards, botão para adicionar perfil e ações de editar e arquivar.
+
+Não houve migration neste ajuste.
+
+## Ajuste visual da Fase 1
+
+As listas de contas e perfis agora usam cards compactos em grid responsivo, com até 4 cards por linha em telas largas, tipografia menor e botões de ação reduzidos.
+
+## Ajuste Fase 1 - suporte a dólar americano
+
+A Fase 1 agora permite criar perfis financeiros e contas em USD. A moeda foi adicionada ao seed e também a uma migration de dados para ambientes que já tinham o banco criado.
+
+Aplicar migration/seed:
+
+```powershell
+pnpm prisma:generate
+pnpm prisma:migrate:dev
+pnpm seed
+```
+
+Depois rode:
+
+```powershell
+pnpm --filter api start:dev
+pnpm --filter web dev
+```
+
+
+## Ajuste Fase 1 - Empresarial USA
+
+O sistema agora permite criar perfis do tipo Empresarial USA, com moeda base USD. Para aplicar a atualização:
+
+```powershell
+pnpm prisma:generate
+pnpm prisma:migrate:dev
+pnpm --filter api start:dev
+pnpm --filter web dev
+```
+
+### Ajuste visual da Fase 1 - contas por perfil
+
+A página de contas agrupa os cards por perfil financeiro. Cada grupo tem cabeçalho com resumo, saldo por moeda e controle para colapsar ou expandir a lista de contas daquele perfil.
+
+## Ajuste Fase 1 - regras de status das contas
+
+A listagem de contas agora respeita as regras de status solicitadas:
+
+- contas arquivadas ficam ocultas por padrão;
+- o checkbox `Mostrar arquivadas` exibe as contas arquivadas quando necessário;
+- contas arquivadas e fechadas não podem ser editadas;
+- contas arquivadas não podem ser fechadas diretamente;
+- contas arquivadas podem ser desarquivadas para voltar ao status ativa;
+- contas com saldo diferente de zero não podem ser arquivadas nem fechadas;
+- grupos por perfil usam apenas setas para expandir/recolher;
+- a listagem não usa mais painel branco por trás dos grupos de cards;
+- o botão `Atualizar perfis` foi removido.
+
+Sem migration neste ajuste.
+
+Observação: o resumo do dashboard agora considera apenas contas ativas.
+
+## Ajuste Fase 1 - contas fechadas fora da listagem
+
+Contas fechadas não aparecem mais em nenhuma lista operacional de contas, mesmo quando o checkbox `Mostrar arquivadas` estiver acionado. Elas permanecem salvas no banco para relatórios futuros.
+
+Sem migration neste ajuste.
+
+
+## Fase 2 - Transações Financeiras
+
+A Fase 2 adiciona a tela `/transactions` e a API `/api/transactions` para registrar receitas, despesas, transferências de mesma moeda e ajustes de saldo.
+
+### Rodar após aplicar a Fase 2
+
+```powershell
+pnpm install
+pnpm prisma:generate
+pnpm prisma:migrate:dev
+pnpm --filter api start:dev
+pnpm --filter web dev
+```
+
+### Validar
+
+```powershell
+pnpm prisma:validate
+pnpm --filter api typecheck
+pnpm --filter web typecheck
+pnpm --filter api test
+pnpm --filter web build
+```

@@ -198,3 +198,145 @@ pnpm prisma:generate
 pnpm --filter api start:dev
 pnpm --filter web dev
 ```
+
+## Ajuste de UX da Fase 1 — dashboard, contas e perfis
+
+### Problema corrigido
+
+O dashboard estava carregando e exibindo perfis financeiros diretamente, e as páginas de contas/perfis ainda estavam com apresentação em tabela ou formulário muito exposto na lista.
+
+### Ajustes aplicados
+
+- Dashboard deixou de carregar a lista de perfis financeiros.
+- Dashboard agora exibe somente:
+  - quantidade de contas cadastradas;
+  - saldo consolidado por moeda.
+- Dashboard ganhou atalhos claros para:
+  - `Contas`;
+  - `Perfis`.
+- Página de contas passou a exibir a lista em cards.
+- Página de contas ganhou botão primário `Adicionar nova conta`.
+- Formulário de criação de conta foi separado da lista.
+- Edição de conta foi adicionada em fluxo separado da lista.
+- Cada card de conta exibe ações de editar, arquivar e fechar quando aplicável.
+- Página de perfis passou a exibir perfis em cards, com ações de editar e arquivar.
+- Páginas de contas e perfis ganharam navegação entre Dashboard, Contas e Perfis.
+- O carregamento da página de contas mantém perfis e contas separados para evitar que uma falha em contas esconda perfis ativos.
+
+### Migration
+
+Não houve migration, alteração de schema, seed ou variável de ambiente nesta revisão.
+
+### Commit sugerido
+
+```powershell
+git add .
+git commit -m "fix(finance): ajustar ux da fase 1 para dashboard contas e perfis"
+```
+
+## Ajuste visual das listas de contas e perfis
+
+- Cards das páginas de lista ajustados para grid responsivo.
+- Em desktop largo, as listas exibem até 4 cards por linha.
+- Cards ficaram mais compactos, com menor espaçamento interno.
+- Títulos, metadados, badges e botões das listas tiveram tipografia reduzida.
+- Botões de ação dos cards ficaram menores para reduzir poluição visual.
+- Sem alteração de backend, schema, migration ou seed.
+
+## Ajuste multimoeda - USD
+
+### O que mudou
+
+- Perfis financeiros agora aceitam `USD` como moeda base.
+- Contas financeiras agora aceitam `USD` como moeda da conta.
+- O seed cadastra `USD - Dólar americano`.
+- Foi adicionada migration de dados para inserir/atualizar a moeda USD em bancos já criados.
+- O frontend passou a exibir USD nos selects de perfil e conta.
+- O dashboard consolida saldos em USD quando houver contas nessa moeda.
+- Testes de perfis e resumo de contas foram atualizados para cobrir USD.
+
+### Migration
+
+Esta revisão inclui migration nova de dados, sem alteração de schema:
+
+```text
+20260625061000_fase_1_usd_currency
+```
+
+### Comandos
+
+```powershell
+pnpm install
+pnpm prisma:generate
+pnpm prisma:migrate:dev
+pnpm seed
+pnpm --filter api start:dev
+pnpm --filter web dev
+```
+
+### Commit sugerido
+
+```powershell
+git add .
+git commit -m "fix(finance): permitir perfis e contas em dolar"
+```
+
+
+## Ajuste - Tipo de perfil Empresarial USA
+
+- Adicionado o tipo `BUSINESS_USA` / Empresarial USA aos perfis financeiros.
+- Perfil Empresarial USA usa USD como moeda base.
+- Formulário de perfis passa a exibir a opção Empresarial USA.
+- Validação backend impede moeda incompatível com o tipo de perfil.
+- Novos usuários passam a receber também o perfil padrão Empresa USA.
+- Adicionada migration de enum para `FinancialProfileType`.
+
+## Ajuste UX - Contas agrupadas por perfil
+
+- A listagem de contas agora separa contas por perfil financeiro.
+- Cada grupo de perfil exibe quantidade de contas e saldo do grupo por moeda.
+- Cada grupo pode ser colapsado ou expandido sem perder as ações dos cards.
+- Cards de contas continuam compactos e em grid com até 4 por linha.
+- Sem migration, sem alteração de schema e sem alteração de seed.
+
+## Ajuste de regras e UX da listagem de contas
+
+- Contas arquivadas ficam ocultas por padrão na listagem.
+- Checkbox `Mostrar arquivadas` permite visualizar contas arquivadas.
+- Conta arquivada não pode ser editada.
+- Conta fechada não pode ser editada.
+- Conta arquivada não pode ser fechada diretamente; deve ser desarquivada antes.
+- Conta com saldo diferente de zero não pode ser arquivada nem fechada.
+- Backend valida essas regras nos endpoints de arquivar, desarquivar, fechar e editar.
+- Adicionado endpoint `POST /api/accounts/:id/unarchive`.
+- Grupos de contas por perfil deixaram de usar painel branco por trás dos cards.
+- Controle de colapso/expansão agora usa apenas seta visual com texto acessível via `aria-label`.
+- Botão `Atualizar perfis` removido da listagem de contas.
+
+Sem migration, sem alteração de schema, sem alteração de seed e sem variável de ambiente nova.
+
+### Commit sugerido
+
+```powershell
+git add .
+git commit -m "fix(finance): aplicar regras de status na listagem de contas"
+```
+
+Observação: o resumo do dashboard agora considera apenas contas ativas para quantidade de contas e saldo consolidado.
+
+## Ajuste de visibilidade - contas fechadas
+
+- Contas com status `CLOSED` deixam de aparecer na listagem operacional de contas.
+- O endpoint `GET /api/accounts` agora exclui contas fechadas por padrão.
+- O checkbox `Mostrar arquivadas` continua exibindo apenas contas arquivadas; contas fechadas permanecem ocultas.
+- Contas fechadas continuam preservadas no banco para relatórios futuros.
+- Testes unitários atualizados para garantir que contas fechadas não entram na listagem operacional.
+
+Sem migration, sem alteração de schema, sem alteração de seed e sem variável de ambiente nova.
+
+### Commit sugerido
+
+```powershell
+git add .
+git commit -m "fix(finance): ocultar contas fechadas da listagem operacional"
+```

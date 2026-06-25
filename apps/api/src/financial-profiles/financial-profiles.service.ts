@@ -1,5 +1,5 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AuditAction, FinancialProfileStatus, Prisma } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { AuditAction, FinancialProfileStatus, FinancialProfileType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFinancialProfileDto, UpdateFinancialProfileDto } from './dto';
 
@@ -12,6 +12,8 @@ export class FinancialProfilesService {
   }
 
   async create(userId: string, dto: CreateFinancialProfileDto) {
+    this.validateProfileTypeCurrency(dto.type, dto.baseCurrency);
+
     return this.prisma.$transaction(async (tx) => {
       const profile = await tx.financialProfile.create({ data: { userId, ...dto } });
       await tx.auditLog.create({
@@ -29,6 +31,10 @@ export class FinancialProfilesService {
 
   async update(userId: string, profileId: string, dto: UpdateFinancialProfileDto) {
     const existing = await this.findOwnedProfile(userId, profileId);
+    const nextType = dto.type ?? existing.type;
+    const nextCurrency = dto.baseCurrency ?? existing.baseCurrency;
+    this.validateProfileTypeCurrency(nextType, nextCurrency);
+
     if (existing.status === FinancialProfileStatus.ARCHIVED && dto.status === FinancialProfileStatus.ACTIVE) {
       throw new ForbiddenException('Perfil arquivado não pode ser reativado nesta fase.');
     }
@@ -73,6 +79,20 @@ export class FinancialProfilesService {
     const profile = await this.prisma.financialProfile.findFirst({ where: { id: profileId, userId } });
     if (!profile) throw new NotFoundException('Perfil financeiro não encontrado para este usuário.');
     return profile;
+  }
+
+  private validateProfileTypeCurrency(type: FinancialProfileType, baseCurrency: string) {
+    if (type === FinancialProfileType.PERSONAL_BRAZIL && baseCurrency !== 'BRL') {
+      throw new BadRequestException('Perfil Pessoal Brasil deve usar BRL como moeda base.');
+    }
+
+    if ((type === FinancialProfileType.PERSONAL_PORTUGAL || type === FinancialProfileType.BUSINESS_PORTUGAL) && baseCurrency !== 'EUR') {
+      throw new BadRequestException('Perfis de Portugal devem usar EUR como moeda base.');
+    }
+
+    if (type === FinancialProfileType.BUSINESS_USA && baseCurrency !== 'USD') {
+      throw new BadRequestException('Perfil Empresarial USA deve usar USD como moeda base.');
+    }
   }
 
   private toAuditMetadata(dto: CreateFinancialProfileDto | UpdateFinancialProfileDto): Prisma.InputJsonObject {

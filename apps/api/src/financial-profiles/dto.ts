@@ -9,8 +9,8 @@ export class CreateFinancialProfileDto {
   @IsEnum(FinancialProfileType)
   type!: FinancialProfileType;
 
-  @IsIn(['BRL', 'EUR'])
-  baseCurrency!: 'BRL' | 'EUR';
+  @IsIn(['BRL', 'EUR', 'USD'])
+  baseCurrency!: 'BRL' | 'EUR' | 'USD';
 }
 
 export class UpdateFinancialProfileDto {
@@ -24,8 +24,8 @@ export class UpdateFinancialProfileDto {
   type?: FinancialProfileType;
 
   @IsOptional()
-  @IsIn(['BRL', 'EUR'])
-  baseCurrency?: 'BRL' | 'EUR';
+  @IsIn(['BRL', 'EUR', 'USD'])
+  baseCurrency?: 'BRL' | 'EUR' | 'USD';
 
   @IsOptional()
   @IsEnum(FinancialProfileStatus)

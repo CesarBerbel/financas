@@ -11,6 +11,7 @@ enum FinancialProfileType {
   PERSONAL_BRAZIL
   PERSONAL_PORTUGAL
   BUSINESS_PORTUGAL
+  BUSINESS_USA
 }
 
 enum FinancialProfileStatus {
@@ -33,6 +34,13 @@ enum AccountStatus {
   CLOSED
 }
 
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+  ADJUSTMENT
+}
+
 enum AuditAction {
   USER_REGISTERED
   PROFILE_CREATED
@@ -42,6 +50,9 @@ enum AuditAction {
   ACCOUNT_UPDATED
   ACCOUNT_ARCHIVED
   ACCOUNT_CLOSED
+  TRANSACTION_CREATED
+  TRANSACTION_UPDATED
+  TRANSACTION_DELETED
 }
 
 model User {
@@ -67,6 +78,7 @@ model Currency {
   createdAt DateTime           @default(now())
   profiles  FinancialProfile[]
   accounts  Account[]
+  transactions Transaction[]
 }
 
 model FinancialProfile {
@@ -81,6 +93,7 @@ model FinancialProfile {
   user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   currency     Currency               @relation(fields: [baseCurrency], references: [code])
   accounts     Account[]
+  transactions Transaction[]
 
   @@index([userId, type])
   @@index([userId, status])
@@ -102,9 +115,40 @@ model Account {
   updatedAt         DateTime         @updatedAt
   financialProfile  FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
   currency          Currency         @relation(fields: [currencyCode], references: [code])
+  transactions      Transaction[]    @relation("AccountTransactions")
+  incomingTransfers Transaction[]    @relation("DestinationAccountTransfers")
 
   @@index([financialProfileId, status])
   @@index([currencyCode])
+}
+
+
+model Transaction {
+  id                   String             @id @default(cuid())
+  financialProfileId   String
+  accountId            String
+  destinationAccountId String?
+  type                 TransactionType
+  amount               Decimal            @db.Decimal(18, 2)
+  currencyCode         String
+  description          String
+  categoryName         String?
+  occurredAt           DateTime
+  notes                String?
+  deletedAt            DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  financialProfile     FinancialProfile   @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+  account              Account            @relation("AccountTransactions", fields: [accountId], references: [id])
+  destinationAccount   Account?           @relation("DestinationAccountTransfers", fields: [destinationAccountId], references: [id])
+  currency             Currency           @relation(fields: [currencyCode], references: [code])
+
+  @@index([financialProfileId, occurredAt])
+  @@index([accountId, occurredAt])
+  @@index([destinationAccountId, occurredAt])
+  @@index([currencyCode])
+  @@index([categoryName])
+  @@index([deletedAt])
 }
 
 model Session {

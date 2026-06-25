@@ -1,0 +1,496 @@
+'use client';
+
+import Link from 'next/link';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { authApi, getApiErrorMessage, isUnauthorized } from '../../lib/api';
+
+type Profile = { id: string; name: string; type: string; baseCurrency: string; status: string };
+type Account = {
+  id: string;
+  financialProfileId: string;
+  name: string;
+  currencyCode: string;
+  status: string;
+  financialProfile?: { id: string; name: string; type: string };
+};
+type Transaction = {
+  id: string;
+  financialProfileId: string;
+  accountId: string;
+  destinationAccountId?: string | null;
+  type: string;
+  amount: string;
+  currencyCode: string;
+  description: string;
+  categoryName?: string | null;
+  occurredAt: string;
+  notes?: string | null;
+  financialProfile?: { id: string; name: string; type: string };
+  account?: { id: string; name: string; currencyCode: string };
+  destinationAccount?: { id: string; name: string; currencyCode: string } | null;
+};
+
+type ScreenMode = 'list' | 'create' | 'edit';
+type TransactionFormState = {
+  id?: string;
+  financialProfileId: string;
+  accountId: string;
+  destinationAccountId: string;
+  type: string;
+  amount: string;
+  occurredAt: string;
+  description: string;
+  categoryName: string;
+  notes: string;
+};
+
+type FiltersState = {
+  financialProfileId: string;
+  accountId: string;
+  categoryName: string;
+  dateFrom: string;
+  dateTo: string;
+};
+
+const transactionTypes = [
+  { value: 'INCOME', label: 'Receita' },
+  { value: 'EXPENSE', label: 'Despesa' },
+  { value: 'TRANSFER', label: 'Transferência' },
+  { value: 'ADJUSTMENT', label: 'Ajuste de saldo' },
+];
+
+const emptyFilters: FiltersState = { financialProfileId: '', accountId: '', categoryName: '', dateFrom: '', dateTo: '' };
+const emptyForm: TransactionFormState = {
+  financialProfileId: '',
+  accountId: '',
+  destinationAccountId: '',
+  type: 'EXPENSE',
+  amount: '0.00',
+  occurredAt: new Date().toISOString().slice(0, 10),
+  description: '',
+  categoryName: '',
+  notes: '',
+};
+
+function formatMoney(value: string | number, currency: string) {
+  return new Intl.NumberFormat('pt-PT', { style: 'currency', currency }).format(Number(value));
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short' }).format(new Date(value));
+}
+
+function typeLabel(type: string) {
+  return transactionTypes.find((item) => item.value === type)?.label ?? type;
+}
+
+function typeTone(type: string) {
+  if (type === 'INCOME') return 'positive';
+  if (type === 'EXPENSE') return 'negative';
+  if (type === 'TRANSFER') return 'neutral';
+  return 'warning';
+}
+
+function displayAmount(transaction: Transaction) {
+  if (transaction.type === 'EXPENSE' || transaction.type === 'TRANSFER') return `-${formatMoney(transaction.amount, transaction.currencyCode)}`;
+  return formatMoney(transaction.amount, transaction.currencyCode);
+}
+
+function accountName(accounts: Account[], accountId: string) {
+  return accounts.find((account) => account.id === accountId)?.name ?? 'Conta não encontrada';
+}
+
+function buildQuery(filters: FiltersState) {
+  const params = new URLSearchParams();
+  if (filters.financialProfileId) params.set('financialProfileId', filters.financialProfileId);
+  if (filters.accountId) params.set('accountId', filters.accountId);
+  if (filters.categoryName.trim()) params.set('categoryName', filters.categoryName.trim());
+  if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
+  if (filters.dateTo) params.set('dateTo', filters.dateTo);
+  const query = params.toString();
+  return query ? `/transactions?${query}` : '/transactions';
+}
+
+export function TransactionManager() {
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [filters, setFilters] = useState<FiltersState>(emptyFilters);
+  const [formState, setFormState] = useState<TransactionFormState>(emptyForm);
+  const [mode, setMode] = useState<ScreenMode>('list');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const activeAccounts = useMemo(() => accounts.filter((account) => account.status === 'ACTIVE'), [accounts]);
+  const selectedSourceAccount = useMemo(() => activeAccounts.find((account) => account.id === formState.accountId), [activeAccounts, formState.accountId]);
+  const sourceAccounts = useMemo(
+    () => activeAccounts.filter((account) => !formState.financialProfileId || account.financialProfileId === formState.financialProfileId),
+    [activeAccounts, formState.financialProfileId],
+  );
+  const destinationAccounts = useMemo(
+    () => activeAccounts.filter((account) => account.id !== formState.accountId && account.currencyCode === selectedSourceAccount?.currencyCode),
+    [activeAccounts, formState.accountId, selectedSourceAccount?.currencyCode],
+  );
+
+  const loadBaseData = useCallback(async () => {
+    const [profileResult, accountResult] = await Promise.all([authApi('/financial-profiles'), authApi('/accounts')]);
+    const activeProfiles = Array.isArray(profileResult) ? profileResult.filter((profile: Profile) => profile.status === 'ACTIVE') : [];
+    const loadedAccounts = Array.isArray(accountResult) ? accountResult.filter((account: Account) => account.status === 'ACTIVE') : [];
+    setProfiles(activeProfiles);
+    setAccounts(loadedAccounts);
+    return { activeProfiles, loadedAccounts };
+  }, []);
+
+  const loadTransactions = useCallback(async (nextFilters: FiltersState = filters) => {
+    const result = await authApi(buildQuery(nextFilters));
+    setTransactions(Array.isArray(result) ? result : []);
+  }, [filters]);
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      await loadBaseData();
+      await loadTransactions(filters);
+    } catch (error) {
+      setError(
+        isUnauthorized(error)
+          ? 'Sessão expirada. Entre novamente para carregar suas transações.'
+          : `Não foi possível carregar transações. ${getApiErrorMessage(error, 'Verifique se a API está rodando e se a migration da Fase 2 foi aplicada.')}`,
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters, loadBaseData, loadTransactions]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  function resetForm(activeProfiles = profiles, loadedAccounts = activeAccounts) {
+    const firstProfile = activeProfiles[0];
+    const firstAccount = loadedAccounts.find((account) => account.financialProfileId === firstProfile?.id) ?? loadedAccounts[0];
+    setFormState({
+      ...emptyForm,
+      financialProfileId: firstProfile?.id ?? firstAccount?.financialProfileId ?? '',
+      accountId: firstAccount?.id ?? '',
+      occurredAt: new Date().toISOString().slice(0, 10),
+    });
+  }
+
+  function openCreateForm() {
+    setError('');
+    setSuccess('');
+    resetForm();
+    setMode('create');
+  }
+
+  function openEditForm(transaction: Transaction) {
+    setError('');
+    setSuccess('');
+    setFormState({
+      id: transaction.id,
+      financialProfileId: transaction.financialProfileId,
+      accountId: transaction.accountId,
+      destinationAccountId: transaction.destinationAccountId ?? '',
+      type: transaction.type,
+      amount: transaction.amount,
+      occurredAt: transaction.occurredAt.slice(0, 10),
+      description: transaction.description,
+      categoryName: transaction.categoryName ?? '',
+      notes: transaction.notes ?? '',
+    });
+    setMode('edit');
+  }
+
+  function cancelForm() {
+    setMode('list');
+    resetForm();
+  }
+
+  function updateFilter(field: keyof FiltersState, value: string) {
+    setFilters((current) => ({ ...current, [field]: value, ...(field === 'financialProfileId' ? { accountId: '' } : {}) }));
+  }
+
+  function updateFormField(field: keyof TransactionFormState, value: string) {
+    setFormState((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateFormProfile(profileId: string) {
+    const firstAccount = activeAccounts.find((account) => account.financialProfileId === profileId);
+    setFormState((current) => ({
+      ...current,
+      financialProfileId: profileId,
+      accountId: firstAccount?.id ?? '',
+      destinationAccountId: '',
+    }));
+  }
+
+  function updateFormAccount(accountId: string) {
+    setFormState((current) => ({ ...current, accountId, destinationAccountId: '' }));
+  }
+
+  async function applyFilters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
+    setIsLoading(true);
+    try {
+      await loadTransactions(filters);
+    } catch (error) {
+      setError(`Não foi possível filtrar transações. ${getApiErrorMessage(error, 'Tente novamente.')}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function clearFilters() {
+    setFilters(emptyFilters);
+    setError('');
+    setSuccess('');
+    setIsLoading(true);
+    try {
+      await loadTransactions(emptyFilters);
+    } catch (error) {
+      setError(`Não foi possível limpar os filtros. ${getApiErrorMessage(error, 'Tente novamente.')}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function saveTransaction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
+    setIsSubmitting(true);
+
+    const payload = {
+      financialProfileId: formState.financialProfileId,
+      accountId: formState.accountId,
+      destinationAccountId: formState.type === 'TRANSFER' ? formState.destinationAccountId : undefined,
+      type: formState.type,
+      amount: formState.amount,
+      occurredAt: formState.occurredAt,
+      description: formState.description.trim(),
+      categoryName: formState.categoryName.trim() || undefined,
+      notes: formState.notes.trim() || undefined,
+    };
+
+    try {
+      if (mode === 'edit' && formState.id) {
+        await authApi(`/transactions/${formState.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+        setSuccess('Transação atualizada e saldo recalculado.');
+      } else {
+        await authApi('/transactions', { method: 'POST', body: JSON.stringify(payload) });
+        setSuccess('Transação criada e saldo atualizado.');
+      }
+
+      setMode('list');
+      resetForm();
+      await loadBaseData();
+      await loadTransactions(filters);
+    } catch (error) {
+      setError(`${mode === 'edit' ? 'Não foi possível editar a transação.' : 'Não foi possível criar a transação.'} ${getApiErrorMessage(error, 'Verifique os campos e tente novamente.')}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function deleteTransaction(transactionId: string) {
+    if (!window.confirm('Excluir esta transação? O saldo da conta será recalculado automaticamente.')) return;
+
+    setError('');
+    setSuccess('');
+    try {
+      await authApi(`/transactions/${transactionId}`, { method: 'DELETE' });
+      setSuccess('Transação excluída e saldo recalculado.');
+      await loadBaseData();
+      await loadTransactions(filters);
+    } catch (error) {
+      setError(`Não foi possível excluir a transação. ${getApiErrorMessage(error, 'Tente novamente.')}`);
+    }
+  }
+
+  if (isLoading && !transactions.length) return <p className="card muted">Carregando transações financeiras...</p>;
+
+  if (mode !== 'list') {
+    const isEditing = mode === 'edit';
+
+    return (
+      <section className="stack" aria-labelledby="transaction-form-title">
+        <div className="page-header">
+          <div>
+            <h1 id="transaction-form-title">{isEditing ? 'Editar transação' : 'Adicionar transação'}</h1>
+            <p className="muted">Receitas aumentam saldo, despesas reduzem saldo, transferências movem saldo entre contas da mesma moeda.</p>
+          </div>
+          <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Voltar para lista</button>
+        </div>
+
+        {error && <p className="alert">{error}</p>}
+
+        <form className="card form-grid" onSubmit={saveTransaction}>
+          <label>
+            Tipo
+            <select value={formState.type} onChange={(event) => updateFormField('type', event.target.value)} required disabled={isSubmitting}>
+              {transactionTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+            </select>
+          </label>
+
+          <label>
+            Perfil financeiro
+            <select value={formState.financialProfileId} onChange={(event) => updateFormProfile(event.target.value)} required disabled={isSubmitting || !profiles.length}>
+              <option value="" disabled>Selecione um perfil</option>
+              {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+            </select>
+          </label>
+
+          <label>
+            Conta
+            <select value={formState.accountId} onChange={(event) => updateFormAccount(event.target.value)} required disabled={isSubmitting || !sourceAccounts.length}>
+              <option value="" disabled>Selecione uma conta</option>
+              {sourceAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} - {account.currencyCode}</option>)}
+            </select>
+          </label>
+
+          {formState.type === 'TRANSFER' && (
+            <label>
+              Conta de destino
+              <select value={formState.destinationAccountId} onChange={(event) => updateFormField('destinationAccountId', event.target.value)} required disabled={isSubmitting || !destinationAccounts.length}>
+                <option value="" disabled>Selecione o destino</option>
+                {destinationAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} - {account.currencyCode}</option>)}
+              </select>
+            </label>
+          )}
+
+          <label>
+            Valor
+            <input value={formState.amount} onChange={(event) => updateFormField('amount', event.target.value)} type="number" step="0.01" required disabled={isSubmitting} />
+          </label>
+
+          <label>
+            Data
+            <input value={formState.occurredAt} onChange={(event) => updateFormField('occurredAt', event.target.value)} type="date" required disabled={isSubmitting} />
+          </label>
+
+          <label className="full-width">
+            Descrição
+            <input value={formState.description} onChange={(event) => updateFormField('description', event.target.value)} minLength={2} maxLength={160} placeholder="Ex.: Mercado, salário, transferência para reserva" required disabled={isSubmitting} />
+          </label>
+
+          <label>
+            Categoria
+            <input value={formState.categoryName} onChange={(event) => updateFormField('categoryName', event.target.value)} maxLength={80} placeholder="Texto livre até a Fase 3" disabled={isSubmitting} />
+          </label>
+
+          <label>
+            Observações
+            <input value={formState.notes} onChange={(event) => updateFormField('notes', event.target.value)} maxLength={240} placeholder="Opcional" disabled={isSubmitting} />
+          </label>
+
+          <div className="actions full-width">
+            <button className="btn" type="submit" disabled={isSubmitting || !profiles.length || !sourceAccounts.length || (formState.type === 'TRANSFER' && !destinationAccounts.length)}>
+              {isSubmitting ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Adicionar transação'}
+            </button>
+            <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Cancelar</button>
+          </div>
+
+          {!profiles.length && <p className="alert full-width">Cadastre um perfil financeiro antes de lançar transações. <Link href="/profiles">Ir para perfis</Link>.</p>}
+          {profiles.length > 0 && !activeAccounts.length && <p className="alert full-width">Cadastre uma conta ativa antes de lançar transações. <Link href="/accounts">Ir para contas</Link>.</p>}
+          {formState.type === 'TRANSFER' && sourceAccounts.length > 0 && !destinationAccounts.length && (
+            <p className="alert full-width">Para transferir, é necessário ter outra conta ativa na mesma moeda da conta de origem.</p>
+          )}
+        </form>
+      </section>
+    );
+  }
+
+  return (
+    <section className="stack" aria-labelledby="transactions-title">
+      <div className="page-header">
+        <div>
+          <h1 id="transactions-title">Transações financeiras</h1>
+          <p className="muted">Registre receitas, despesas, transferências e ajustes. Cada lançamento atualiza o saldo automaticamente.</p>
+        </div>
+        <button className="btn" type="button" onClick={openCreateForm}>Adicionar transação</button>
+      </div>
+
+      {error && <p className="alert">{error}</p>}
+      {success && <p className="alert success">{success}</p>}
+
+      <form className="card compact-filter-grid" onSubmit={applyFilters}>
+        <label>
+          Perfil
+          <select value={filters.financialProfileId} onChange={(event) => updateFilter('financialProfileId', event.target.value)}>
+            <option value="">Todos</option>
+            {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+          </select>
+        </label>
+        <label>
+          Conta
+          <select value={filters.accountId} onChange={(event) => updateFilter('accountId', event.target.value)}>
+            <option value="">Todas</option>
+            {activeAccounts
+              .filter((account) => !filters.financialProfileId || account.financialProfileId === filters.financialProfileId)
+              .map((account) => <option key={account.id} value={account.id}>{account.name} - {account.currencyCode}</option>)}
+          </select>
+        </label>
+        <label>
+          Categoria
+          <input value={filters.categoryName} onChange={(event) => updateFilter('categoryName', event.target.value)} placeholder="Buscar categoria" />
+        </label>
+        <label>
+          De
+          <input value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} type="date" />
+        </label>
+        <label>
+          Até
+          <input value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} type="date" />
+        </label>
+        <div className="actions filter-actions">
+          <button className="btn small" type="submit">Filtrar</button>
+          <button className="btn secondary small" type="button" onClick={() => void clearFilters()}>Limpar</button>
+        </div>
+      </form>
+
+      {!transactions.length ? (
+        <div className="card empty-state">
+          <h2>Nenhuma transação encontrada</h2>
+          <p className="muted">Adicione uma receita, despesa, transferência ou ajuste para movimentar suas contas.</p>
+          <button className="btn" type="button" onClick={openCreateForm} disabled={!profiles.length || !activeAccounts.length}>Adicionar transação</button>
+        </div>
+      ) : (
+        <div className="transaction-list" aria-label="Lista de transações financeiras">
+          {transactions.map((transaction) => (
+            <article className="card transaction-card" key={transaction.id}>
+              <div className="transaction-card-main">
+                <div>
+                  <h2>{transaction.description}</h2>
+                  <p className="muted">
+                    {formatDate(transaction.occurredAt)} · {transaction.financialProfile?.name ?? 'Perfil'} · {transaction.account?.name ?? accountName(activeAccounts, transaction.accountId)}
+                    {transaction.destinationAccount ? ` → ${transaction.destinationAccount.name}` : ''}
+                  </p>
+                </div>
+                <strong className={`transaction-amount ${typeTone(transaction.type)}`}>{displayAmount(transaction)}</strong>
+              </div>
+
+              <div className="transaction-card-details">
+                <span className="badge">{typeLabel(transaction.type)}</span>
+                <span>{transaction.categoryName || 'Sem categoria'}</span>
+                <span>{transaction.currencyCode}</span>
+              </div>
+
+              {transaction.notes && <p className="muted transaction-notes">{transaction.notes}</p>}
+
+              <div className="actions">
+                <button className="btn secondary small" type="button" onClick={() => openEditForm(transaction)}>Editar</button>
+                <button className="btn danger small" type="button" onClick={() => void deleteTransaction(transaction.id)}>Excluir</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}

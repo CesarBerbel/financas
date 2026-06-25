@@ -6,7 +6,6 @@ import { authApi, getApiErrorMessage } from '../../lib/api';
 type Summary = {
   accountCount: number;
   byCurrency: { currencyCode: string; balance: string }[];
-  byProfile: { profileId: string; profileName: string; profileType: string; balances: Record<string, string> }[];
 };
 
 function formatMoney(value: string, currency: string) {
@@ -19,7 +18,7 @@ export function AccountSummary() {
 
   useEffect(() => {
     authApi('/accounts/summary')
-      .then(setSummary)
+      .then((result) => setSummary(result as Summary))
       .catch((error) => setError(`Não foi possível carregar o resumo de saldos. ${getApiErrorMessage(error, 'Verifique se a API está rodando e se a migration da Fase 1 foi aplicada.')}`));
   }, []);
 
@@ -28,22 +27,24 @@ export function AccountSummary() {
 
   return (
     <section className="stack" aria-labelledby="summary-title">
-      <h2 id="summary-title">Resumo de contas</h2>
+      <h2 id="summary-title">Resumo de saldos</h2>
       <div className="grid">
-        <article className="card"><p className="muted">Contas cadastradas</p><strong className="metric">{summary.accountCount}</strong></article>
-        {summary.byCurrency.length ? summary.byCurrency.map((item) => (
-          <article className="card" key={item.currencyCode}><p className="muted">Saldo total em {item.currencyCode}</p><strong className="metric">{formatMoney(item.balance, item.currencyCode)}</strong></article>
-        )) : <article className="card"><p className="muted">Saldo consolidado</p><strong className="metric">Sem contas</strong></article>}
-      </div>
+        <article className="card">
+          <p className="muted">Contas cadastradas</p>
+          <strong className="metric">{summary.accountCount}</strong>
+        </article>
 
-      <div className="grid">
-        {summary.byProfile.map((profile) => (
-          <article className="card" key={profile.profileId}>
-            <h3>{profile.profileName}</h3>
-            <p className="muted">{profile.profileType}</p>
-            {Object.entries(profile.balances).map(([currency, balance]) => <p key={currency}><strong>{formatMoney(balance, currency)}</strong> em {currency}</p>)}
+        {summary.byCurrency.length ? summary.byCurrency.map((item) => (
+          <article className="card" key={item.currencyCode}>
+            <p className="muted">Saldo consolidado em {item.currencyCode}</p>
+            <strong className="metric">{formatMoney(item.balance, item.currencyCode)}</strong>
           </article>
-        ))}
+        )) : (
+          <article className="card">
+            <p className="muted">Saldo consolidado</p>
+            <strong className="metric">Sem contas</strong>
+          </article>
+        )}
       </div>
     </section>
   );

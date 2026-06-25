@@ -8,7 +8,8 @@ import { LoginDto, RegisterDto } from './dto';
 const defaultProfiles = [
   { type: FinancialProfileType.PERSONAL_BRAZIL, name: 'Pessoal Brasil', baseCurrency: 'BRL' },
   { type: FinancialProfileType.PERSONAL_PORTUGAL, name: 'Pessoal Portugal', baseCurrency: 'EUR' },
-  { type: FinancialProfileType.BUSINESS_PORTUGAL, name: 'Empresa Portugal', baseCurrency: 'EUR' }
+  { type: FinancialProfileType.BUSINESS_PORTUGAL, name: 'Empresa Portugal', baseCurrency: 'EUR' },
+  { type: FinancialProfileType.BUSINESS_USA, name: 'Empresa USA', baseCurrency: 'USD' }
 ] as const;
 
 @Injectable()

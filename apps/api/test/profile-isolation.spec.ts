@@ -14,8 +14,8 @@ describe('FinancialProfilesService', () => {
     });
   });
 
-  it('creates an additional profile for the authenticated user and audits the action', async () => {
-    const profile = { id: 'profile-new', type: 'PERSONAL_PORTUGAL', baseCurrency: 'EUR' };
+  it('creates an additional USD profile for the authenticated user and audits the action', async () => {
+    const profile = { id: 'profile-new', type: 'BUSINESS_USA', baseCurrency: 'USD' };
     const tx = {
       financialProfile: { create: jest.fn().mockResolvedValue(profile) },
       auditLog: { create: jest.fn().mockResolvedValue({}) },
@@ -23,17 +23,17 @@ describe('FinancialProfilesService', () => {
     const prisma = { $transaction: jest.fn((callback) => callback(tx)) } as any;
     const service = new FinancialProfilesService(prisma);
 
-    const result = await service.create('user-a', { name: 'Viagens Portugal', type: 'PERSONAL_PORTUGAL' as any, baseCurrency: 'EUR' });
+    const result = await service.create('user-a', { name: 'Empresa USA', type: 'BUSINESS_USA' as any, baseCurrency: 'USD' });
 
     expect(result).toBe(profile);
-    expect(tx.financialProfile.create).toHaveBeenCalledWith({ data: { userId: 'user-a', name: 'Viagens Portugal', type: 'PERSONAL_PORTUGAL', baseCurrency: 'EUR' } });
+    expect(tx.financialProfile.create).toHaveBeenCalledWith({ data: { userId: 'user-a', name: 'Empresa USA', type: 'BUSINESS_USA', baseCurrency: 'USD' } });
     expect(tx.auditLog.create).toHaveBeenCalledWith({
       data: {
         userId: 'user-a',
         action: AuditAction.PROFILE_CREATED,
         entityType: 'FinancialProfile',
         entityId: 'profile-new',
-        metadata: { name: 'Viagens Portugal', type: 'PERSONAL_PORTUGAL', baseCurrency: 'EUR' },
+        metadata: { name: 'Empresa USA', type: 'BUSINESS_USA', baseCurrency: 'USD' },
       },
     });
   });

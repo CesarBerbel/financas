@@ -34,6 +34,11 @@ export class AccountsController {
     return this.service.archive(user.sub, id);
   }
 
+  @Post(':id/unarchive')
+  unarchive(@CurrentUser() user: CurrentUser, @Param('id') id: string) {
+    return this.service.unarchive(user.sub, id);
+  }
+
   @Post(':id/close')
   close(@CurrentUser() user: CurrentUser, @Param('id') id: string) {
     return this.service.close(user.sub, id);

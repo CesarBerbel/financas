@@ -1,5 +1,5 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountStatus, AuditAction, Prisma } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Account, AccountStatus, AuditAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountDto, UpdateAccountDto } from './dto';
 
@@ -13,6 +13,7 @@ export class AccountsService {
     return this.prisma.account.findMany({
       where: {
         ...(financialProfileId ? { financialProfileId } : {}),
+        status: { not: AccountStatus.CLOSED },
         financialProfile: { userId },
       },
       include: { financialProfile: { select: { id: true, name: true, type: true } } },
@@ -22,7 +23,7 @@ export class AccountsService {
 
   async summary(userId: string) {
     const accounts = await this.prisma.account.findMany({
-      where: { financialProfile: { userId }, status: { not: AccountStatus.CLOSED } },
+      where: { financialProfile: { userId }, status: AccountStatus.ACTIVE },
       include: { financialProfile: { select: { id: true, name: true, type: true } } },
       orderBy: { createdAt: 'asc' },
     });
@@ -85,9 +86,7 @@ export class AccountsService {
 
   async update(userId: string, accountId: string, dto: UpdateAccountDto) {
     const existing = await this.findOwnedAccount(userId, accountId);
-    if (existing.status === AccountStatus.CLOSED && dto.status !== AccountStatus.CLOSED) {
-      throw new ForbiddenException('Conta fechada não pode ser reaberta nesta fase.');
-    }
+    this.validateAccountUpdate(existing, dto);
 
     return this.prisma.$transaction(async (tx) => {
       const account = await tx.account.update({ where: { id: accountId }, data: dto });
@@ -105,13 +104,81 @@ export class AccountsService {
   }
 
   async archive(userId: string, accountId: string) {
-    await this.findOwnedAccount(userId, accountId);
+    const account = await this.findOwnedAccount(userId, accountId);
+    this.ensureAccountCanBeArchived(account);
     return this.update(userId, accountId, { status: AccountStatus.ARCHIVED });
   }
 
+  async unarchive(userId: string, accountId: string) {
+    const account = await this.findOwnedAccount(userId, accountId);
+    if (account.status !== AccountStatus.ARCHIVED) {
+      throw new BadRequestException('Somente contas arquivadas podem ser desarquivadas.');
+    }
+
+    return this.update(userId, accountId, { status: AccountStatus.ACTIVE });
+  }
+
   async close(userId: string, accountId: string) {
-    await this.findOwnedAccount(userId, accountId);
+    const account = await this.findOwnedAccount(userId, accountId);
+    this.ensureAccountCanBeClosed(account);
     return this.update(userId, accountId, { status: AccountStatus.CLOSED });
+  }
+
+  private validateAccountUpdate(account: Account, dto: UpdateAccountDto) {
+    const isStatusOnlyUpdate = dto.status !== undefined && Object.keys(this.toAuditMetadata(dto)).length === 1;
+
+    if (account.status === AccountStatus.CLOSED) {
+      throw new ForbiddenException('Conta fechada não pode ser editada ou reaberta.');
+    }
+
+    if (account.status === AccountStatus.ARCHIVED && !isStatusOnlyUpdate) {
+      throw new ForbiddenException('Conta arquivada não pode ser editada. Desarquive a conta antes de alterar seus dados.');
+    }
+
+    if (dto.status === undefined || dto.status === account.status) return;
+
+    if (dto.status === AccountStatus.ARCHIVED) {
+      this.ensureAccountCanBeArchived(account);
+      return;
+    }
+
+    if (dto.status === AccountStatus.CLOSED) {
+      this.ensureAccountCanBeClosed(account);
+      return;
+    }
+
+    if (dto.status === AccountStatus.ACTIVE) {
+      if (account.status !== AccountStatus.ARCHIVED) {
+        throw new BadRequestException('Somente contas arquivadas podem voltar para ativa.');
+      }
+      return;
+    }
+
+    throw new BadRequestException('Transição de status da conta não permitida.');
+  }
+
+  private ensureAccountCanBeArchived(account: Account) {
+    if (account.status !== AccountStatus.ACTIVE) {
+      throw new BadRequestException('Somente contas ativas podem ser arquivadas.');
+    }
+
+    if (!account.currentBalance.equals(0)) {
+      throw new BadRequestException('Conta com saldo diferente de zero não pode ser arquivada.');
+    }
+  }
+
+  private ensureAccountCanBeClosed(account: Account) {
+    if (account.status === AccountStatus.ARCHIVED) {
+      throw new BadRequestException('Conta arquivada não pode ser fechada. Desarquive a conta antes de fechá-la.');
+    }
+
+    if (account.status !== AccountStatus.ACTIVE) {
+      throw new BadRequestException('Somente contas ativas podem ser fechadas.');
+    }
+
+    if (!account.currentBalance.equals(0)) {
+      throw new BadRequestException('Conta com saldo diferente de zero não pode ser fechada.');
+    }
   }
 
   private toAuditMetadata(dto: UpdateAccountDto): Prisma.InputJsonObject {
