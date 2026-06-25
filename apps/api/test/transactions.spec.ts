@@ -1,6 +1,14 @@
 import { AccountStatus, AuditAction, Prisma, TransactionType } from '@prisma/client';
 import { TransactionsService } from '../src/transactions/transactions.service';
 
+function categoriesServiceMock(overrides: Record<string, unknown> = {}) {
+  return {
+    ensureCategoryVisibleForProfile: jest.fn().mockResolvedValue({ id: 'category-1', name: 'Alimentação', financialProfileId: 'profile-1' }),
+    normalizeTags: jest.fn((values?: string[]) => (values ?? []).map((name) => ({ name, normalizedName: name.toLowerCase() }))),
+    ...overrides,
+  } as any;
+}
+
 function activeAccount(overrides: Partial<{ id: string; financialProfileId: string; currencyCode: string; status: AccountStatus }> = {}) {
   const now = new Date('2026-06-25T00:00:00.000Z');
   return {
@@ -26,6 +34,7 @@ function transactionFixture(overrides: Partial<{
   financialProfileId: string;
   accountId: string;
   destinationAccountId: string | null;
+  categoryId: string | null;
   type: TransactionType;
   amount: Prisma.Decimal;
   currencyCode: string;
@@ -36,6 +45,7 @@ function transactionFixture(overrides: Partial<{
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  tags: { tag: { name: string } }[];
 }> = {}) {
   const now = new Date('2026-06-25T00:00:00.000Z');
   return {
@@ -43,6 +53,7 @@ function transactionFixture(overrides: Partial<{
     financialProfileId: 'profile-1',
     accountId: 'account-1',
     destinationAccountId: null,
+    categoryId: null,
     type: TransactionType.EXPENSE,
     amount: new Prisma.Decimal(25),
     currencyCode: 'EUR',
@@ -55,6 +66,7 @@ function transactionFixture(overrides: Partial<{
     updatedAt: now,
     account: activeAccount(),
     destinationAccount: null,
+    tags: [],
     ...overrides,
   };
 }
@@ -64,7 +76,7 @@ describe('TransactionsService', () => {
     const prisma = {
       transaction: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
-    const service = new TransactionsService(prisma);
+    const service = new TransactionsService(prisma, categoriesServiceMock());
 
     await service.list('user-a', {});
 
@@ -79,7 +91,11 @@ describe('TransactionsService', () => {
     const profile = { id: 'profile-1', userId: 'user-a', status: 'ACTIVE' };
     const created = transactionFixture({ type: TransactionType.INCOME, amount: new Prisma.Decimal(100), description: 'Salário' });
     const tx = {
-      transaction: { create: jest.fn().mockResolvedValue(created) },
+      transaction: {
+        create: jest.fn().mockResolvedValue(created),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(created),
+      },
+      transactionTag: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       account: { update: jest.fn().mockResolvedValue(account) },
       auditLog: { create: jest.fn().mockResolvedValue({}) },
     };
@@ -88,7 +104,7 @@ describe('TransactionsService', () => {
       financialProfile: { findFirst: jest.fn().mockResolvedValue(profile) },
       $transaction: jest.fn((callback) => callback(tx)),
     } as any;
-    const service = new TransactionsService(prisma);
+    const service = new TransactionsService(prisma, categoriesServiceMock());
 
     await service.create('user-a', {
       financialProfileId: 'profile-1',
@@ -108,6 +124,54 @@ describe('TransactionsService', () => {
     }));
   });
 
+  it('creates transaction with category and free tags', async () => {
+    const account = activeAccount();
+    const created = transactionFixture({ categoryId: 'category-1', categoryName: 'Alimentação' });
+    const tx = {
+      transaction: {
+        create: jest.fn().mockResolvedValue(created),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(created),
+      },
+      transactionTag: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        create: jest.fn().mockResolvedValue({}),
+      },
+      tag: {
+        findUnique: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'tag-2', name: 'recorrente', normalizedName: 'recorrente' }),
+        create: jest.fn().mockResolvedValue({ id: 'tag-1', name: 'mercado', normalizedName: 'mercado' }),
+      },
+      account: { update: jest.fn().mockResolvedValue(account) },
+      auditLog: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const prisma = {
+      account: { findFirst: jest.fn().mockResolvedValue(account) },
+      financialProfile: { findFirst: jest.fn().mockResolvedValue({ id: 'profile-1', userId: 'user-a', status: 'ACTIVE' }) },
+      $transaction: jest.fn((callback) => callback(tx)),
+    } as any;
+    const categoryService = categoriesServiceMock();
+    const service = new TransactionsService(prisma, categoryService);
+
+    await service.create('user-a', {
+      financialProfileId: 'profile-1',
+      accountId: 'account-1',
+      type: TransactionType.EXPENSE,
+      amount: '25.00',
+      occurredAt: '2026-06-25',
+      description: 'Mercado',
+      categoryId: 'category-1',
+      tags: ['mercado', 'recorrente'],
+    });
+
+    expect(categoryService.ensureCategoryVisibleForProfile).toHaveBeenCalledWith('user-a', 'category-1', 'profile-1');
+    expect(tx.transaction.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ categoryId: 'category-1', categoryName: 'Alimentação' }),
+    }));
+    expect(tx.transactionTag.create).toHaveBeenCalledTimes(2);
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: AuditAction.TAG_CREATED, entityType: 'Tag' }),
+    }));
+  });
+
   it('blocks transfer between different currencies in phase 2', async () => {
     const source = activeAccount({ id: 'source', currencyCode: 'EUR' });
     const destination = activeAccount({ id: 'destination', financialProfileId: 'profile-2', currencyCode: 'USD' });
@@ -115,7 +179,7 @@ describe('TransactionsService', () => {
       account: { findFirst: jest.fn().mockResolvedValueOnce(source).mockResolvedValueOnce(destination) },
       financialProfile: { findFirst: jest.fn().mockResolvedValue({ id: 'profile-1', userId: 'user-a', status: 'ACTIVE' }) },
     } as any;
-    const service = new TransactionsService(prisma);
+    const service = new TransactionsService(prisma, categoriesServiceMock());
 
     await expect(service.create('user-a', {
       financialProfileId: 'profile-1',
@@ -139,7 +203,7 @@ describe('TransactionsService', () => {
       transaction: { findFirst: jest.fn().mockResolvedValue(existing) },
       $transaction: jest.fn((callback) => callback(tx)),
     } as any;
-    const service = new TransactionsService(prisma);
+    const service = new TransactionsService(prisma, categoriesServiceMock());
 
     await service.remove('user-a', 'transaction-1');
 

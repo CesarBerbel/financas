@@ -26,6 +26,10 @@ export default function DashboardPage() {
           <span className="nav-card-title">Transações</span>
           <span className="muted">Registrar receitas, despesas, transferências e ajustes de saldo.</span>
         </Link>
+        <Link className="card nav-card" href="/categories">
+          <span className="nav-card-title">Categorias</span>
+          <span className="muted">Gerir categorias, subcategorias, tags e relatório por categoria.</span>
+        </Link>
       </section>
     </main>
   );

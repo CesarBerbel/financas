@@ -206,3 +206,62 @@ pnpm --filter web build
 Os campos monetários de contas e transações agora exibem máscara com símbolo da moeda e placeholder no formato `símbolo da moeda 0,00`. O fechamento de conta exige confirmação explícita antes de chamar a API.
 
 Sem migration neste ajuste.
+
+## Fase 3 - Categorias e Organização
+
+A Fase 3 adiciona categorias persistidas, subcategorias, tags livres em transações e relatório por categoria. Categorias personalizadas podem ser removidas quando não possuem vínculos; categorias padrão, categorias em uso e categorias com subcategorias exibem mensagem amigável explicando o bloqueio.
+
+Novas áreas:
+
+- `/categories`: gestão de categorias, subcategorias e relatório por categoria.
+- `/transactions`: seleção de categoria persistida, tags livres e filtros por categoria/tag.
+
+Há migration Prisma nova:
+
+```powershell
+pnpm prisma:generate
+pnpm prisma:migrate:dev
+```
+
+Depois rode:
+
+```powershell
+pnpm --filter api start:dev
+pnpm --filter web dev
+```
+
+Validação recomendada:
+
+```powershell
+pnpm prisma:validate
+pnpm --filter api typecheck
+pnpm --filter web typecheck
+pnpm --filter api test
+pnpm --filter web build
+```
+
+Commit de fim da Fase 3 na branch da Release 1:
+
+```powershell
+git add .
+git commit -m "feat(finance): concluir fase 3 categorias e organizacao"
+```
+
+Como a Release 1 inclui Fases 0, 1, 2 e 3, após homologar esta fase abra o PR para `main`:
+
+```powershell
+git push -u origin release/01-mvp-operacional
+gh pr create --base main --head release/01-mvp-operacional --title "Release 1 - MVP Operacional" --body "Entrega das fases 0, 1, 2 e 3 do sistema financeiro."
+```
+
+## Ajuste UX - nova categoria inline em transações
+
+No formulário de transações, o atalho antigo `Gerir categorias` foi removido da área de ações. O campo Categoria agora possui o botão `+ nova categoria`, que abre um modal para criar uma categoria ou subcategoria no contexto do perfil financeiro selecionado e já selecionar a nova categoria no lançamento.
+
+Sem migration neste ajuste.
+
+## Ajuste UX - formulários de criação e edição em modal
+
+As telas operacionais agora mantêm suas listas como contexto e abrem os formulários de criação/edição em modal para perfis financeiros, contas, categorias e transações. Filtros e relatórios permanecem inline por não serem formulários de criação/edição de entidades.
+
+Sem migration neste ajuste.

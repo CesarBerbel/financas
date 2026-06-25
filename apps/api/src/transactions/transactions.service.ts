@@ -1,17 +1,20 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Account, AccountStatus, AuditAction, Prisma, Transaction, TransactionType } from '@prisma/client';
+import { CategoriesService } from '../categories/categories.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTransactionDto, TransactionListFilters, UpdateTransactionDto } from './dto';
 
 type TransactionWithAccounts = Transaction & {
   account: Account;
   destinationAccount: Account | null;
+  tags: { tag: { name: string } }[];
 };
 
 type TransactionSnapshot = {
   financialProfileId: string;
   accountId: string;
   destinationAccountId: string | null;
+  categoryId: string | null;
   type: TransactionType;
   amount: Prisma.Decimal;
   currencyCode: string;
@@ -19,15 +22,17 @@ type TransactionSnapshot = {
   categoryName: string | null;
   occurredAt: Date;
   notes: string | null;
+  tags: string[];
 };
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly categoriesService: CategoriesService) {}
 
   async list(userId: string, filters: TransactionListFilters) {
     if (filters.financialProfileId) await this.ensureProfileBelongsToUser(userId, filters.financialProfileId);
     if (filters.accountId) await this.ensureAccountBelongsToUser(userId, filters.accountId);
+    if (filters.categoryId) await this.ensureCategoryBelongsToUser(userId, filters.categoryId);
 
     return this.prisma.transaction.findMany({
       where: {
@@ -35,7 +40,9 @@ export class TransactionsService {
         financialProfile: { userId },
         ...(filters.financialProfileId ? { financialProfileId: filters.financialProfileId } : {}),
         ...(filters.accountId ? { OR: [{ accountId: filters.accountId }, { destinationAccountId: filters.accountId }] } : {}),
+        ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
         ...(filters.categoryName ? { categoryName: { contains: filters.categoryName, mode: 'insensitive' } } : {}),
+        ...(filters.tag?.trim() ? { tags: { some: { tag: { name: { contains: filters.tag.trim(), mode: 'insensitive' } } } } } : {}),
         ...(filters.dateFrom || filters.dateTo
           ? {
               occurredAt: {
@@ -59,6 +66,7 @@ export class TransactionsService {
           financialProfileId: snapshot.financialProfileId,
           accountId: snapshot.accountId,
           destinationAccountId: snapshot.destinationAccountId,
+          categoryId: snapshot.categoryId,
           type: snapshot.type,
           amount: snapshot.amount,
           currencyCode: snapshot.currencyCode,
@@ -70,6 +78,7 @@ export class TransactionsService {
         include: this.defaultIncludes(),
       });
 
+      await this.syncTransactionTags(tx, userId, transaction.id, snapshot.financialProfileId, snapshot.tags);
       await this.applyBalanceEffect(tx, snapshot, 'apply');
       await tx.auditLog.create({
         data: {
@@ -81,7 +90,7 @@ export class TransactionsService {
         },
       });
 
-      return transaction;
+      return tx.transaction.findUniqueOrThrow({ where: { id: transaction.id }, include: this.defaultIncludes() });
     });
   }
 
@@ -91,17 +100,21 @@ export class TransactionsService {
     const nextDestinationAccountId = nextType === TransactionType.TRANSFER
       ? dto.destinationAccountId === undefined ? existing.destinationAccountId ?? undefined : dto.destinationAccountId ?? undefined
       : undefined;
+    const nextTags = dto.tags === undefined ? existing.tags.map((item) => item.tag.name) : dto.tags;
+    const categoryWasCleared = dto.categoryId === null;
 
     const nextSnapshot = await this.buildSnapshot(userId, {
       financialProfileId: dto.financialProfileId ?? existing.financialProfileId,
       accountId: dto.accountId ?? existing.accountId,
       destinationAccountId: nextDestinationAccountId,
+      categoryId: dto.categoryId === undefined ? existing.categoryId ?? undefined : dto.categoryId ?? undefined,
       type: nextType,
       amount: dto.amount ?? existing.amount.toFixed(2),
       occurredAt: dto.occurredAt ?? existing.occurredAt.toISOString(),
       description: dto.description ?? existing.description,
-      categoryName: dto.categoryName === undefined ? existing.categoryName ?? undefined : dto.categoryName ?? undefined,
+      categoryName: categoryWasCleared ? undefined : dto.categoryName === undefined ? existing.categoryName ?? undefined : dto.categoryName ?? undefined,
       notes: dto.notes === undefined ? existing.notes ?? undefined : dto.notes ?? undefined,
+      tags: nextTags,
     });
 
     const previousSnapshot = this.snapshotFromTransaction(existing);
@@ -114,6 +127,7 @@ export class TransactionsService {
           financialProfileId: nextSnapshot.financialProfileId,
           accountId: nextSnapshot.accountId,
           destinationAccountId: nextSnapshot.destinationAccountId,
+          categoryId: nextSnapshot.categoryId,
           type: nextSnapshot.type,
           amount: nextSnapshot.amount,
           currencyCode: nextSnapshot.currencyCode,
@@ -124,6 +138,7 @@ export class TransactionsService {
         },
         include: this.defaultIncludes(),
       });
+      await this.syncTransactionTags(tx, userId, transaction.id, nextSnapshot.financialProfileId, nextSnapshot.tags);
       await this.applyBalanceEffect(tx, nextSnapshot, 'apply');
       await tx.auditLog.create({
         data: {
@@ -135,7 +150,7 @@ export class TransactionsService {
         },
       });
 
-      return transaction;
+      return tx.transaction.findUniqueOrThrow({ where: { id: transaction.id }, include: this.defaultIncludes() });
     });
   }
 
@@ -194,17 +209,22 @@ export class TransactionsService {
       throw new BadRequestException('Conta de destino só deve ser informada para transferências.');
     }
 
+    const category = dto.categoryId ? await this.categoriesService.ensureCategoryVisibleForProfile(userId, dto.categoryId, dto.financialProfileId) : null;
+    const tags = this.categoriesService.normalizeTags(dto.tags);
+
     return {
       financialProfileId: dto.financialProfileId,
       accountId: dto.accountId,
       destinationAccountId: destinationAccount?.id ?? null,
+      categoryId: category?.id ?? null,
       type: dto.type,
       amount,
       currencyCode: sourceAccount.currencyCode,
       description: dto.description.trim(),
-      categoryName: dto.categoryName?.trim() || null,
+      categoryName: category?.name ?? (dto.categoryName?.trim() || null),
       occurredAt,
       notes: dto.notes?.trim() || null,
+      tags: tags.map((tag) => tag.name),
     };
   }
 
@@ -231,7 +251,6 @@ export class TransactionsService {
     if (Number.isNaN(date.getTime())) throw new BadRequestException(errorMessage);
     return date;
   }
-
 
   private parseDateUpperBound(value: string, errorMessage: string) {
     const date = this.parseDate(value, errorMessage);
@@ -270,6 +289,46 @@ export class TransactionsService {
     });
   }
 
+  private async syncTransactionTags(tx: Prisma.TransactionClient, userId: string, transactionId: string, financialProfileId: string, tagNames: string[]) {
+    await tx.transactionTag.deleteMany({ where: { transactionId } });
+    const tags = this.categoriesService.normalizeTags(tagNames);
+
+    for (const tagData of tags) {
+      let tag = await tx.tag.findUnique({
+        where: {
+          userId_financialProfileId_normalizedName: {
+            userId,
+            financialProfileId,
+            normalizedName: tagData.normalizedName,
+          },
+        },
+      });
+
+      if (!tag) {
+        tag = await tx.tag.create({
+          data: {
+            userId,
+            financialProfileId,
+            name: tagData.name,
+            normalizedName: tagData.normalizedName,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            userId,
+            action: AuditAction.TAG_CREATED,
+            entityType: 'Tag',
+            entityId: tag.id,
+            metadata: { financialProfileId, name: tag.name, normalizedName: tag.normalizedName },
+          },
+        });
+      }
+
+      await tx.transactionTag.create({ data: { transactionId, tagId: tag.id } });
+    }
+  }
+
   private async ensureProfileBelongsToUser(userId: string, financialProfileId: string) {
     const profile = await this.prisma.financialProfile.findFirst({ where: { id: financialProfileId, userId, status: 'ACTIVE' } });
     if (!profile) throw new NotFoundException('Perfil financeiro não encontrado para este usuário.');
@@ -288,21 +347,28 @@ export class TransactionsService {
     return account;
   }
 
+  private async ensureCategoryBelongsToUser(userId: string, categoryId: string) {
+    const category = await this.prisma.category.findFirst({ where: { id: categoryId, userId } });
+    if (!category) throw new NotFoundException('Categoria não encontrada para este usuário.');
+    return category;
+  }
+
   private async findOwnedTransaction(userId: string, transactionId: string): Promise<TransactionWithAccounts> {
     const transaction = await this.prisma.transaction.findFirst({
       where: { id: transactionId, deletedAt: null, financialProfile: { userId } },
-      include: { account: true, destinationAccount: true },
+      include: { account: true, destinationAccount: true, tags: { include: { tag: { select: { name: true } } } } },
     });
 
     if (!transaction) throw new NotFoundException('Transação financeira não encontrada.');
     return transaction;
   }
 
-  private snapshotFromTransaction(transaction: Transaction): TransactionSnapshot {
+  private snapshotFromTransaction(transaction: TransactionWithAccounts): TransactionSnapshot {
     return {
       financialProfileId: transaction.financialProfileId,
       accountId: transaction.accountId,
       destinationAccountId: transaction.destinationAccountId,
+      categoryId: transaction.categoryId,
       type: transaction.type,
       amount: transaction.amount,
       currencyCode: transaction.currencyCode,
@@ -310,6 +376,7 @@ export class TransactionsService {
       categoryName: transaction.categoryName,
       occurredAt: transaction.occurredAt,
       notes: transaction.notes,
+      tags: transaction.tags.map((item) => item.tag.name),
     };
   }
 
@@ -318,6 +385,7 @@ export class TransactionsService {
       financialProfileId: snapshot.financialProfileId,
       accountId: snapshot.accountId,
       destinationAccountId: snapshot.destinationAccountId,
+      categoryId: snapshot.categoryId,
       type: snapshot.type,
       amount: snapshot.amount.toFixed(2),
       currencyCode: snapshot.currencyCode,
@@ -325,6 +393,7 @@ export class TransactionsService {
       categoryName: snapshot.categoryName,
       occurredAt: snapshot.occurredAt.toISOString(),
       notes: snapshot.notes,
+      tags: snapshot.tags,
     };
   }
 
@@ -333,6 +402,8 @@ export class TransactionsService {
       financialProfile: { select: { id: true, name: true, type: true } },
       account: { select: { id: true, name: true, currencyCode: true } },
       destinationAccount: { select: { id: true, name: true, currencyCode: true } },
+      category: { select: { id: true, name: true, parent: { select: { id: true, name: true } } } },
+      tags: { include: { tag: { select: { id: true, name: true } } } },
     } satisfies Prisma.TransactionInclude;
   }
 }

@@ -152,63 +152,8 @@ export function ProfileList() {
 
   if (isLoading) return <p className="card muted">Carregando perfis financeiros...</p>;
 
-  if (mode !== 'list') {
-    const isEditing = mode === 'edit';
-
-    return (
-      <section className="stack" aria-labelledby="profile-form-title">
-        <div className="page-header">
-          <div>
-            <h2 id="profile-form-title">{isEditing ? 'Editar perfil financeiro' : 'Adicionar perfil financeiro'}</h2>
-            <p className="muted">Defina o nome, o tipo e a moeda base do perfil. Perfis ativos aparecem no cadastro de contas.</p>
-          </div>
-          <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Voltar para lista</button>
-        </div>
-
-        {error && <p className="alert">{error}</p>}
-
-        <form className="card form-grid" onSubmit={saveProfile}>
-          <label>
-            Nome do perfil
-            <input
-              value={formState.name}
-              onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
-              minLength={2}
-              placeholder="Ex.: Pessoal Brasil"
-              required
-              disabled={isSubmitting}
-            />
-          </label>
-          <label>
-            Tipo
-            <select
-              value={formState.type}
-              onChange={(event) => updateProfileType(event.target.value)}
-              required
-              disabled={isSubmitting}
-            >
-              {profileTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
-            </select>
-          </label>
-          <label>
-            Moeda base
-            <select
-              value={formState.baseCurrency}
-              onChange={(event) => setFormState((current) => ({ ...current, baseCurrency: event.target.value }))}
-              required
-              disabled={isSubmitting}
-            >
-              {currencies.map((currency) => <option key={currency.value} value={currency.value}>{currency.label}</option>)}
-            </select>
-          </label>
-          <div className="actions full-width">
-            <button className="btn" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Adicionar perfil'}</button>
-            <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Cancelar</button>
-          </div>
-        </form>
-      </section>
-    );
-  }
+  const isFormOpen = mode !== 'list';
+  const isEditing = mode === 'edit';
 
   return (
     <section className="stack" aria-labelledby="profiles-title">
@@ -220,7 +165,7 @@ export function ProfileList() {
         <button className="btn" type="button" onClick={openCreateForm}>Adicionar perfil</button>
       </div>
 
-      {error && <p className="alert">{error}</p>}
+      {error && !isFormOpen && <p className="alert">{error}</p>}
       {success && <p className="alert success">{success}</p>}
 
       <div className="card">
@@ -256,6 +201,63 @@ export function ProfileList() {
               </div>
             </article>
           ))}
+        </div>
+      )}
+
+      {isFormOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="profile-form-title">
+            <div className="modal-header">
+              <div>
+                <h2 id="profile-form-title">{isEditing ? 'Editar perfil financeiro' : 'Adicionar perfil financeiro'}</h2>
+                <p className="muted">Defina o nome, o tipo e a moeda base do perfil. Perfis ativos aparecem no cadastro de contas.</p>
+              </div>
+              <button className="btn secondary small" type="button" onClick={cancelForm} disabled={isSubmitting} aria-label="Fechar formulário de perfil">Fechar</button>
+            </div>
+
+            {error && <p className="alert">{error}</p>}
+
+            <form className="form-grid" onSubmit={saveProfile}>
+              <label>
+                Nome do perfil
+                <input
+                  value={formState.name}
+                  onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
+                  minLength={2}
+                  placeholder="Ex.: Pessoal Brasil"
+                  required
+                  disabled={isSubmitting}
+                  autoFocus
+                />
+              </label>
+              <label>
+                Tipo
+                <select
+                  value={formState.type}
+                  onChange={(event) => updateProfileType(event.target.value)}
+                  required
+                  disabled={isSubmitting}
+                >
+                  {profileTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+                </select>
+              </label>
+              <label>
+                Moeda base
+                <select
+                  value={formState.baseCurrency}
+                  onChange={(event) => setFormState((current) => ({ ...current, baseCurrency: event.target.value }))}
+                  required
+                  disabled={isSubmitting}
+                >
+                  {currencies.map((currency) => <option key={currency.value} value={currency.value}>{currency.label}</option>)}
+                </select>
+              </label>
+              <div className="actions full-width">
+                <button className="btn" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Adicionar perfil'}</button>
+                <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Cancelar</button>
+              </div>
+            </form>
+          </section>
         </div>
       )}
     </section>

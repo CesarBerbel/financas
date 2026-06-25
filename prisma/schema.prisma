@@ -53,6 +53,10 @@ enum AuditAction {
   TRANSACTION_CREATED
   TRANSACTION_UPDATED
   TRANSACTION_DELETED
+  CATEGORY_CREATED
+  CATEGORY_UPDATED
+  CATEGORY_DELETED
+  TAG_CREATED
 }
 
 model User {
@@ -69,15 +73,17 @@ model User {
   profiles         FinancialProfile[]
   sessions         Session[]
   auditLogs        AuditLog[]
+  categories       Category[]
+  tags             Tag[]
 }
 
 model Currency {
-  code      String             @id
-  name      String
-  symbol    String
-  createdAt DateTime           @default(now())
-  profiles  FinancialProfile[]
-  accounts  Account[]
+  code         String             @id
+  name         String
+  symbol       String
+  createdAt    DateTime           @default(now())
+  profiles     FinancialProfile[]
+  accounts     Account[]
   transactions Transaction[]
 }
 
@@ -94,40 +100,79 @@ model FinancialProfile {
   currency     Currency               @relation(fields: [baseCurrency], references: [code])
   accounts     Account[]
   transactions Transaction[]
+  categories   Category[]
+  tags         Tag[]
 
   @@index([userId, type])
   @@index([userId, status])
 }
 
 model Account {
-  id                String           @id @default(cuid())
-  financialProfileId String
-  name              String
-  type              AccountType
-  currencyCode      String
-  initialBalance    Decimal          @default(0) @db.Decimal(18, 2)
-  currentBalance    Decimal          @default(0) @db.Decimal(18, 2)
-  reconciledBalance Decimal          @default(0) @db.Decimal(18, 2)
-  projectedBalance  Decimal          @default(0) @db.Decimal(18, 2)
-  status            AccountStatus    @default(ACTIVE)
-  description       String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  financialProfile  FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
-  currency          Currency         @relation(fields: [currencyCode], references: [code])
-  transactions      Transaction[]    @relation("AccountTransactions")
-  incomingTransfers Transaction[]    @relation("DestinationAccountTransfers")
+  id                  String           @id @default(cuid())
+  financialProfileId  String
+  name                String
+  type                AccountType
+  currencyCode        String
+  initialBalance      Decimal          @default(0) @db.Decimal(18, 2)
+  currentBalance      Decimal          @default(0) @db.Decimal(18, 2)
+  reconciledBalance   Decimal          @default(0) @db.Decimal(18, 2)
+  projectedBalance    Decimal          @default(0) @db.Decimal(18, 2)
+  status              AccountStatus    @default(ACTIVE)
+  description         String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  financialProfile    FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+  currency            Currency         @relation(fields: [currencyCode], references: [code])
+  transactions        Transaction[]    @relation("AccountTransactions")
+  incomingTransfers   Transaction[]    @relation("DestinationAccountTransfers")
 
   @@index([financialProfileId, status])
   @@index([currencyCode])
 }
 
+model Category {
+  id                  String            @id @default(cuid())
+  userId              String
+  financialProfileId  String?
+  parentId            String?
+  name                String
+  normalizedName      String
+  isDefault           Boolean           @default(false)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialProfile    FinancialProfile? @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+  parent              Category?         @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children            Category[]        @relation("CategoryHierarchy")
+  transactions        Transaction[]
+
+  @@index([userId, financialProfileId])
+  @@index([parentId])
+  @@index([normalizedName])
+}
+
+model Tag {
+  id                  String            @id @default(cuid())
+  userId              String
+  financialProfileId  String
+  name                String
+  normalizedName      String
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialProfile    FinancialProfile  @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+  transactions        TransactionTag[]
+
+  @@unique([userId, financialProfileId, normalizedName])
+  @@index([financialProfileId])
+}
 
 model Transaction {
   id                   String             @id @default(cuid())
   financialProfileId   String
   accountId            String
   destinationAccountId String?
+  categoryId           String?
   type                 TransactionType
   amount               Decimal            @db.Decimal(18, 2)
   currencyCode         String
@@ -141,14 +186,28 @@ model Transaction {
   financialProfile     FinancialProfile   @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
   account              Account            @relation("AccountTransactions", fields: [accountId], references: [id])
   destinationAccount   Account?           @relation("DestinationAccountTransfers", fields: [destinationAccountId], references: [id])
+  category             Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   currency             Currency           @relation(fields: [currencyCode], references: [code])
+  tags                 TransactionTag[]
 
   @@index([financialProfileId, occurredAt])
   @@index([accountId, occurredAt])
   @@index([destinationAccountId, occurredAt])
+  @@index([categoryId])
   @@index([currencyCode])
   @@index([categoryName])
   @@index([deletedAt])
+}
+
+model TransactionTag {
+  transactionId String
+  tagId         String
+  createdAt     DateTime    @default(now())
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tag           Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([transactionId, tagId])
+  @@index([tagId])
 }
 
 model Session {

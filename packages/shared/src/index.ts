@@ -19,3 +19,10 @@ export const defaultProfiles = [
 
 export const TRANSACTION_TYPES = ['INCOME', 'EXPENSE', 'TRANSFER', 'ADJUSTMENT'] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+
+export const DEFAULT_CATEGORY_NAMES_BY_PROFILE_TYPE = {
+  PERSONAL_BRAZIL: ['Moradia', 'Alimentação', 'Transporte'],
+  PERSONAL_PORTUGAL: ['Moradia', 'Alimentação', 'Transporte', 'IVA', 'Segurança Social'],
+  BUSINESS_PORTUGAL: ['Contabilidade', 'Impostos', 'Software', 'IVA', 'Segurança Social'],
+  BUSINESS_USA: ['Contabilidade', 'Impostos', 'Software'],
+} as const;

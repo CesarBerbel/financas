@@ -372,109 +372,8 @@ export function AccountManager() {
 
   if (isLoading) return <p className="card muted">Carregando contas financeiras...</p>;
 
-  if (mode !== 'list') {
-    const isEditing = mode === 'edit';
-
-    return (
-      <section className="stack" aria-labelledby="account-form-title">
-        <div className="page-header">
-          <div>
-            <h1 id="account-form-title">{isEditing ? 'Editar conta' : 'Adicionar nova conta'}</h1>
-            <p className="muted">
-              {isEditing
-                ? 'Atualize os dados cadastrais da conta. Saldos e moeda não são alterados por esta edição.'
-                : 'Escolha o perfil financeiro, a moeda BRL, EUR ou USD e o saldo inicial da nova conta.'}
-            </p>
-          </div>
-          <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Voltar para lista</button>
-        </div>
-
-        {error && <p className="alert">{error}</p>}
-
-        <form className="card form-grid" onSubmit={saveAccount}>
-          <label>
-            Perfil financeiro
-            <select
-              value={formState.financialProfileId}
-              onChange={(event) => updateProfile(event.target.value)}
-              required
-              disabled={isSubmitting || isEditing || !profiles.length}
-            >
-              <option value="" disabled>Selecione um perfil</option>
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>{profile.name} - {profile.baseCurrency}</option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Nome da conta
-            <input
-              value={formState.name}
-              onChange={(event) => updateFormField('name', event.target.value)}
-              minLength={2}
-              maxLength={80}
-              placeholder="Ex.: Millennium Conta Corrente"
-              required
-              disabled={isSubmitting}
-            />
-          </label>
-
-          <label>
-            Tipo
-            <select value={formState.type} onChange={(event) => updateFormField('type', event.target.value)} required disabled={isSubmitting}>
-              {accountTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
-            </select>
-          </label>
-
-          <label>
-            Moeda
-            <select value={formState.currencyCode} onChange={(event) => updateFormField('currencyCode', event.target.value)} required disabled={isSubmitting || isEditing || !profiles.length}>
-              <option value="EUR">EUR</option>
-              <option value="BRL">BRL</option>
-              <option value="USD">USD</option>
-            </select>
-          </label>
-
-          <label>
-            Saldo inicial
-            <input
-              value={formatMoneyInput(formState.initialBalance, formState.currencyCode)}
-              onChange={(event) => updateFormField('initialBalance', parseMoneyInputToDecimal(event.target.value))}
-              type="text"
-              inputMode="decimal"
-              placeholder={moneyInputPlaceholder(formState.currencyCode)}
-              required
-              disabled={isSubmitting || isEditing}
-            />
-          </label>
-
-          <label className="full-width">
-            Observações
-            <input
-              value={formState.description}
-              onChange={(event) => updateFormField('description', event.target.value)}
-              maxLength={240}
-              placeholder="Opcional"
-              disabled={isSubmitting}
-            />
-          </label>
-
-          <div className="actions full-width">
-            <button className="btn" type="submit" disabled={isSubmitting || !profiles.length}>{isSubmitting ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Adicionar conta'}</button>
-            <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Cancelar</button>
-          </div>
-
-          {!profiles.length && (
-            <p className="alert full-width">
-              Cadastre pelo menos um perfil financeiro ativo antes de criar contas.{' '}
-              <Link href="/profiles">Ir para perfis</Link>.
-            </p>
-          )}
-        </form>
-      </section>
-    );
-  }
+  const isFormOpen = mode !== 'list';
+  const isEditing = mode === 'edit';
 
   const operationalAccounts = accounts.filter((account) => account.status !== 'CLOSED');
   const archivedAccountCount = operationalAccounts.filter((account) => account.status === 'ARCHIVED').length;
@@ -502,7 +401,7 @@ export function AccountManager() {
         </div>
       </div>
 
-      {error && <p className="alert">{error}</p>}
+      {error && !isFormOpen && <p className="alert">{error}</p>}
       {success && <p className="alert success">{success}</p>}
 
       {!profiles.length && (
@@ -611,6 +510,109 @@ export function AccountManager() {
               </section>
             );
           })}
+        </div>
+      )}
+
+      {isFormOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="account-form-title">
+            <div className="modal-header">
+              <div>
+                <h2 id="account-form-title">{isEditing ? 'Editar conta' : 'Adicionar nova conta'}</h2>
+                <p className="muted">
+                  {isEditing
+                    ? 'Atualize os dados cadastrais da conta. Saldos e moeda não são alterados por esta edição.'
+                    : 'Escolha o perfil financeiro, a moeda BRL, EUR ou USD e o saldo inicial da nova conta.'}
+                </p>
+              </div>
+              <button className="btn secondary small" type="button" onClick={cancelForm} disabled={isSubmitting} aria-label="Fechar formulário de conta">Fechar</button>
+            </div>
+
+            {error && <p className="alert">{error}</p>}
+
+            <form className="form-grid" onSubmit={saveAccount}>
+              <label>
+                Perfil financeiro
+                <select
+                  value={formState.financialProfileId}
+                  onChange={(event) => updateProfile(event.target.value)}
+                  required
+                  disabled={isSubmitting || isEditing || !profiles.length}
+                >
+                  <option value="" disabled>Selecione um perfil</option>
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>{profile.name} - {profile.baseCurrency}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Nome da conta
+                <input
+                  value={formState.name}
+                  onChange={(event) => updateFormField('name', event.target.value)}
+                  minLength={2}
+                  maxLength={80}
+                  placeholder="Ex.: Millennium Conta Corrente"
+                  required
+                  disabled={isSubmitting}
+                  autoFocus
+                />
+              </label>
+
+              <label>
+                Tipo
+                <select value={formState.type} onChange={(event) => updateFormField('type', event.target.value)} required disabled={isSubmitting}>
+                  {accountTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+                </select>
+              </label>
+
+              <label>
+                Moeda
+                <select value={formState.currencyCode} onChange={(event) => updateFormField('currencyCode', event.target.value)} required disabled={isSubmitting || isEditing || !profiles.length}>
+                  <option value="EUR">EUR</option>
+                  <option value="BRL">BRL</option>
+                  <option value="USD">USD</option>
+                </select>
+              </label>
+
+              <label>
+                Saldo inicial
+                <input
+                  value={formatMoneyInput(formState.initialBalance, formState.currencyCode)}
+                  onChange={(event) => updateFormField('initialBalance', parseMoneyInputToDecimal(event.target.value))}
+                  type="text"
+                  inputMode="decimal"
+                  placeholder={moneyInputPlaceholder(formState.currencyCode)}
+                  required
+                  disabled={isSubmitting || isEditing}
+                />
+              </label>
+
+              <label className="full-width">
+                Observações
+                <input
+                  value={formState.description}
+                  onChange={(event) => updateFormField('description', event.target.value)}
+                  maxLength={240}
+                  placeholder="Opcional"
+                  disabled={isSubmitting}
+                />
+              </label>
+
+              <div className="actions full-width">
+                <button className="btn" type="submit" disabled={isSubmitting || !profiles.length}>{isSubmitting ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Adicionar conta'}</button>
+                <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Cancelar</button>
+              </div>
+
+              {!profiles.length && (
+                <p className="alert full-width">
+                  Cadastre pelo menos um perfil financeiro ativo antes de criar contas.{' '}
+                  <Link href="/profiles">Ir para perfis</Link>.
+                </p>
+              )}
+            </form>
+          </section>
         </div>
       )}
     </section>

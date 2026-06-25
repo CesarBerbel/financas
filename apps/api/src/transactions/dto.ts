@@ -1,5 +1,5 @@
 import { TransactionType } from '@prisma/client';
-import { IsDateString, IsDecimal, IsEnum, IsNotEmpty, IsOptional, IsString, Length } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsDateString, IsDecimal, IsEnum, IsNotEmpty, IsOptional, IsString, Length } from 'class-validator';
 
 export class CreateTransactionDto {
   @IsString()
@@ -29,8 +29,19 @@ export class CreateTransactionDto {
 
   @IsOptional()
   @IsString()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsString()
   @Length(0, 80)
   categoryName?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(12)
+  @IsString({ each: true })
+  @Length(2, 40, { each: true })
+  tags?: string[];
 
   @IsOptional()
   @IsString()
@@ -72,8 +83,19 @@ export class UpdateTransactionDto {
 
   @IsOptional()
   @IsString()
+  categoryId?: string | null;
+
+  @IsOptional()
+  @IsString()
   @Length(0, 80)
   categoryName?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(12)
+  @IsString({ each: true })
+  @Length(2, 40, { each: true })
+  tags?: string[];
 
   @IsOptional()
   @IsString()
@@ -84,7 +106,9 @@ export class UpdateTransactionDto {
 export type TransactionListFilters = {
   financialProfileId?: string;
   accountId?: string;
+  categoryId?: string;
   categoryName?: string;
+  tag?: string;
   dateFrom?: string;
   dateTo?: string;
 };

@@ -14,11 +14,21 @@ type Account = {
   status: string;
   financialProfile?: { id: string; name: string; type: string };
 };
+type Category = {
+  id: string;
+  financialProfileId?: string | null;
+  parentId?: string | null;
+  name: string;
+  fullName?: string;
+  financialProfile?: { id: string; name: string; type: string } | null;
+  parent?: { id: string; name: string } | null;
+};
 type Transaction = {
   id: string;
   financialProfileId: string;
   accountId: string;
   destinationAccountId?: string | null;
+  categoryId?: string | null;
   type: string;
   amount: string;
   currencyCode: string;
@@ -29,26 +39,31 @@ type Transaction = {
   financialProfile?: { id: string; name: string; type: string };
   account?: { id: string; name: string; currencyCode: string };
   destinationAccount?: { id: string; name: string; currencyCode: string } | null;
+  category?: { id: string; name: string; parent?: { id: string; name: string } | null } | null;
+  tags?: { tag: { id: string; name: string } }[];
 };
 
 type ScreenMode = 'list' | 'create' | 'edit';
+type NewCategoryFormState = { financialProfileId: string; parentId: string; name: string };
 type TransactionFormState = {
   id?: string;
   financialProfileId: string;
   accountId: string;
   destinationAccountId: string;
+  categoryId: string;
   type: string;
   amount: string;
   occurredAt: string;
   description: string;
-  categoryName: string;
+  tagsText: string;
   notes: string;
 };
 
 type FiltersState = {
   financialProfileId: string;
   accountId: string;
-  categoryName: string;
+  categoryId: string;
+  tag: string;
   dateFrom: string;
   dateTo: string;
 };
@@ -60,16 +75,18 @@ const transactionTypes = [
   { value: 'ADJUSTMENT', label: 'Ajuste de saldo' },
 ];
 
-const emptyFilters: FiltersState = { financialProfileId: '', accountId: '', categoryName: '', dateFrom: '', dateTo: '' };
+const emptyFilters: FiltersState = { financialProfileId: '', accountId: '', categoryId: '', tag: '', dateFrom: '', dateTo: '' };
+const emptyCategoryForm: NewCategoryFormState = { financialProfileId: '', parentId: '', name: '' };
 const emptyForm: TransactionFormState = {
   financialProfileId: '',
   accountId: '',
   destinationAccountId: '',
+  categoryId: '',
   type: 'EXPENSE',
   amount: '',
   occurredAt: new Date().toISOString().slice(0, 10),
   description: '',
-  categoryName: '',
+  tagsText: '',
   notes: '',
 };
 
@@ -101,11 +118,31 @@ function accountName(accounts: Account[], accountId: string) {
   return accounts.find((account) => account.id === accountId)?.name ?? 'Conta não encontrada';
 }
 
+function categoryLabel(category: Category) {
+  const label = category.fullName ?? (category.parent ? `${category.parent.name} > ${category.name}` : category.name);
+  return category.financialProfile?.name ? `${label} · ${category.financialProfile.name}` : `${label} · Global`;
+}
+
+function transactionCategoryLabel(transaction: Transaction, categoriesById: Map<string, Category>) {
+  if (transaction.categoryId && categoriesById.has(transaction.categoryId)) return categoriesById.get(transaction.categoryId)?.fullName ?? categoriesById.get(transaction.categoryId)?.name;
+  if (transaction.category?.parent) return `${transaction.category.parent.name} > ${transaction.category.name}`;
+  return transaction.category?.name ?? transaction.categoryName ?? 'Sem categoria';
+}
+
+function tagsFromText(value: string) {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
 function buildQuery(filters: FiltersState) {
   const params = new URLSearchParams();
   if (filters.financialProfileId) params.set('financialProfileId', filters.financialProfileId);
   if (filters.accountId) params.set('accountId', filters.accountId);
-  if (filters.categoryName.trim()) params.set('categoryName', filters.categoryName.trim());
+  if (filters.categoryId) params.set('categoryId', filters.categoryId);
+  if (filters.tag.trim()) params.set('tag', filters.tag.trim());
   if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
   if (filters.dateTo) params.set('dateTo', filters.dateTo);
   const query = params.toString();
@@ -115,6 +152,7 @@ function buildQuery(filters: FiltersState) {
 export function TransactionManager() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filters, setFilters] = useState<FiltersState>(emptyFilters);
   const [formState, setFormState] = useState<TransactionFormState>(emptyForm);
@@ -123,6 +161,10 @@ export function TransactionManager() {
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [categoryFormState, setCategoryFormState] = useState<NewCategoryFormState>(emptyCategoryForm);
+  const [categoryModalError, setCategoryModalError] = useState('');
+  const [isCategorySubmitting, setIsCategorySubmitting] = useState(false);
 
   const activeAccounts = useMemo(() => accounts.filter((account) => account.status === 'ACTIVE'), [accounts]);
   const selectedSourceAccount = useMemo(() => activeAccounts.find((account) => account.id === formState.accountId), [activeAccounts, formState.accountId]);
@@ -135,14 +177,33 @@ export function TransactionManager() {
     () => activeAccounts.filter((account) => account.id !== formState.accountId && account.currencyCode === selectedSourceAccount?.currencyCode),
     [activeAccounts, formState.accountId, selectedSourceAccount?.currencyCode],
   );
+  const categoriesById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
+  const formCategories = useMemo(
+    () => categories.filter((category) => !category.financialProfileId || category.financialProfileId === formState.financialProfileId),
+    [categories, formState.financialProfileId],
+  );
+  const filterCategories = useMemo(
+    () => categories.filter((category) => !filters.financialProfileId || !category.financialProfileId || category.financialProfileId === filters.financialProfileId),
+    [categories, filters.financialProfileId],
+  );
+  const inlineRootCategoryOptions = useMemo(
+    () => categories.filter((category) => !category.parentId && (!categoryFormState.financialProfileId || !category.financialProfileId || category.financialProfileId === categoryFormState.financialProfileId)),
+    [categories, categoryFormState.financialProfileId],
+  );
 
   const loadBaseData = useCallback(async () => {
-    const [profileResult, accountResult] = await Promise.all([authApi('/financial-profiles'), authApi('/accounts')]);
+    const [profileResult, accountResult, categoryResult] = await Promise.all([
+      authApi('/financial-profiles'),
+      authApi('/accounts'),
+      authApi('/categories'),
+    ]);
     const activeProfiles = Array.isArray(profileResult) ? profileResult.filter((profile: Profile) => profile.status === 'ACTIVE') : [];
     const loadedAccounts = Array.isArray(accountResult) ? accountResult.filter((account: Account) => account.status === 'ACTIVE') : [];
+    const loadedCategories = Array.isArray(categoryResult) ? categoryResult : [];
     setProfiles(activeProfiles);
     setAccounts(loadedAccounts);
-    return { activeProfiles, loadedAccounts };
+    setCategories(loadedCategories);
+    return { activeProfiles, loadedAccounts, loadedCategories };
   }, []);
 
   const loadTransactions = useCallback(async (nextFilters: FiltersState = filters) => {
@@ -160,7 +221,7 @@ export function TransactionManager() {
       setError(
         isUnauthorized(error)
           ? 'Sessão expirada. Entre novamente para carregar suas transações.'
-          : `Não foi possível carregar transações. ${getApiErrorMessage(error, 'Verifique se a API está rodando e se a migration da Fase 2 foi aplicada.')}`,
+          : `Não foi possível carregar transações. ${getApiErrorMessage(error, 'Verifique se a API está rodando e se a migration da Fase 3 foi aplicada.')}`,
       );
     } finally {
       setIsLoading(false);
@@ -197,11 +258,12 @@ export function TransactionManager() {
       financialProfileId: transaction.financialProfileId,
       accountId: transaction.accountId,
       destinationAccountId: transaction.destinationAccountId ?? '',
+      categoryId: transaction.categoryId ?? '',
       type: transaction.type,
       amount: transaction.amount,
       occurredAt: transaction.occurredAt.slice(0, 10),
       description: transaction.description,
-      categoryName: transaction.categoryName ?? '',
+      tagsText: transaction.tags?.map((item) => item.tag.name).join(', ') ?? '',
       notes: transaction.notes ?? '',
     });
     setMode('edit');
@@ -213,7 +275,7 @@ export function TransactionManager() {
   }
 
   function updateFilter(field: keyof FiltersState, value: string) {
-    setFilters((current) => ({ ...current, [field]: value, ...(field === 'financialProfileId' ? { accountId: '' } : {}) }));
+    setFilters((current) => ({ ...current, [field]: value, ...(field === 'financialProfileId' ? { accountId: '', categoryId: '' } : {}) }));
   }
 
   function updateFormField(field: keyof TransactionFormState, value: string) {
@@ -227,11 +289,70 @@ export function TransactionManager() {
       financialProfileId: profileId,
       accountId: firstAccount?.id ?? '',
       destinationAccountId: '',
+      categoryId: '',
     }));
   }
 
   function updateFormAccount(accountId: string) {
     setFormState((current) => ({ ...current, accountId, destinationAccountId: '' }));
+  }
+
+  function updateInlineCategoryField(field: keyof NewCategoryFormState, value: string) {
+    setCategoryFormState((current) => ({ ...current, [field]: value, ...(field === 'financialProfileId' ? { parentId: '' } : {}) }));
+  }
+
+  function openInlineCategoryModal() {
+    setError('');
+    setSuccess('');
+    setCategoryModalError('');
+
+    if (!formState.financialProfileId) {
+      setError('Selecione um perfil financeiro antes de criar uma categoria para a transação.');
+      return;
+    }
+
+    setCategoryFormState({ financialProfileId: formState.financialProfileId, parentId: '', name: '' });
+    setIsCategoryModalOpen(true);
+  }
+
+  function closeInlineCategoryModal() {
+    if (isCategorySubmitting) return;
+    setIsCategoryModalOpen(false);
+    setCategoryModalError('');
+    setCategoryFormState(emptyCategoryForm);
+  }
+
+  async function saveInlineCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCategoryModalError('');
+    setIsCategorySubmitting(true);
+
+    const payload = {
+      financialProfileId: categoryFormState.financialProfileId || undefined,
+      parentId: categoryFormState.parentId || undefined,
+      name: categoryFormState.name.trim(),
+    };
+
+    try {
+      const createdCategory = (await authApi('/categories', { method: 'POST', body: JSON.stringify(payload) })) as Category;
+      const { loadedCategories } = await loadBaseData();
+      const categoryStillAvailable = loadedCategories.some((category) => category.id === createdCategory.id);
+
+      if (!createdCategory?.id || !categoryStillAvailable) {
+        setCategoryModalError('Categoria criada, mas não foi possível selecioná-la automaticamente. Feche este modal e atualize a lista de categorias.');
+        return;
+      }
+
+      setFormState((current) => ({ ...current, categoryId: createdCategory.id }));
+      setSuccess(`Categoria "${createdCategory.fullName ?? createdCategory.name}" criada e selecionada na transação.`);
+      setIsCategoryModalOpen(false);
+      setCategoryModalError('');
+      setCategoryFormState(emptyCategoryForm);
+    } catch (error) {
+      setCategoryModalError(`Não foi possível criar a categoria. ${getApiErrorMessage(error, 'Verifique o nome, o perfil e tente novamente.')}`);
+    } finally {
+      setIsCategorySubmitting(false);
+    }
   }
 
   async function applyFilters(event: FormEvent<HTMLFormElement>) {
@@ -272,21 +393,22 @@ export function TransactionManager() {
       financialProfileId: formState.financialProfileId,
       accountId: formState.accountId,
       destinationAccountId: formState.type === 'TRANSFER' ? formState.destinationAccountId : undefined,
+      categoryId: formState.categoryId || (mode === 'edit' ? null : undefined),
       type: formState.type,
       amount: formState.amount,
       occurredAt: formState.occurredAt,
       description: formState.description.trim(),
-      categoryName: formState.categoryName.trim() || undefined,
+      tags: tagsFromText(formState.tagsText),
       notes: formState.notes.trim() || undefined,
     };
 
     try {
       if (mode === 'edit' && formState.id) {
         await authApi(`/transactions/${formState.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
-        setSuccess('Transação atualizada e saldo recalculado.');
+        setSuccess('Transação atualizada com categoria, tags e saldo recalculado.');
       } else {
         await authApi('/transactions', { method: 'POST', body: JSON.stringify(payload) });
-        setSuccess('Transação criada e saldo atualizado.');
+        setSuccess('Transação criada com categoria, tags e saldo atualizado.');
       }
 
       setMode('list');
@@ -317,116 +439,20 @@ export function TransactionManager() {
 
   if (isLoading && !transactions.length) return <p className="card muted">Carregando transações financeiras...</p>;
 
-  if (mode !== 'list') {
-    const isEditing = mode === 'edit';
-
-    return (
-      <section className="stack" aria-labelledby="transaction-form-title">
-        <div className="page-header">
-          <div>
-            <h1 id="transaction-form-title">{isEditing ? 'Editar transação' : 'Adicionar transação'}</h1>
-            <p className="muted">Receitas aumentam saldo, despesas reduzem saldo, transferências movem saldo entre contas da mesma moeda.</p>
-          </div>
-          <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Voltar para lista</button>
-        </div>
-
-        {error && <p className="alert">{error}</p>}
-
-        <form className="card form-grid" onSubmit={saveTransaction}>
-          <label>
-            Tipo
-            <select value={formState.type} onChange={(event) => updateFormField('type', event.target.value)} required disabled={isSubmitting}>
-              {transactionTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
-            </select>
-          </label>
-
-          <label>
-            Perfil financeiro
-            <select value={formState.financialProfileId} onChange={(event) => updateFormProfile(event.target.value)} required disabled={isSubmitting || !profiles.length}>
-              <option value="" disabled>Selecione um perfil</option>
-              {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-            </select>
-          </label>
-
-          <label>
-            Conta
-            <select value={formState.accountId} onChange={(event) => updateFormAccount(event.target.value)} required disabled={isSubmitting || !sourceAccounts.length}>
-              <option value="" disabled>Selecione uma conta</option>
-              {sourceAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} - {account.currencyCode}</option>)}
-            </select>
-          </label>
-
-          {formState.type === 'TRANSFER' && (
-            <label>
-              Conta de destino
-              <select value={formState.destinationAccountId} onChange={(event) => updateFormField('destinationAccountId', event.target.value)} required disabled={isSubmitting || !destinationAccounts.length}>
-                <option value="" disabled>Selecione o destino</option>
-                {destinationAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} - {account.currencyCode}</option>)}
-              </select>
-            </label>
-          )}
-
-          <label>
-            Valor
-            <input
-              value={formatMoneyInput(formState.amount, formCurrency)}
-              onChange={(event) => updateFormField('amount', parseMoneyInputToDecimal(event.target.value))}
-              type="text"
-              inputMode="decimal"
-              placeholder={moneyInputPlaceholder(formCurrency)}
-              required
-              disabled={isSubmitting}
-            />
-          </label>
-
-          <label>
-            Data
-            <input value={formState.occurredAt} onChange={(event) => updateFormField('occurredAt', event.target.value)} type="date" required disabled={isSubmitting} />
-          </label>
-
-          <label className="full-width">
-            Descrição
-            <input value={formState.description} onChange={(event) => updateFormField('description', event.target.value)} minLength={2} maxLength={160} placeholder="Ex.: Mercado, salário, transferência para reserva" required disabled={isSubmitting} />
-          </label>
-
-          <label>
-            Categoria
-            <input value={formState.categoryName} onChange={(event) => updateFormField('categoryName', event.target.value)} maxLength={80} placeholder="Texto livre até a Fase 3" disabled={isSubmitting} />
-          </label>
-
-          <label>
-            Observações
-            <input value={formState.notes} onChange={(event) => updateFormField('notes', event.target.value)} maxLength={240} placeholder="Opcional" disabled={isSubmitting} />
-          </label>
-
-          <div className="actions full-width">
-            <button className="btn" type="submit" disabled={isSubmitting || !profiles.length || !sourceAccounts.length || (formState.type === 'TRANSFER' && !destinationAccounts.length)}>
-              {isSubmitting ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Adicionar transação'}
-            </button>
-            <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Cancelar</button>
-          </div>
-
-          {!profiles.length && <p className="alert full-width">Cadastre um perfil financeiro antes de lançar transações. <Link href="/profiles">Ir para perfis</Link>.</p>}
-          {profiles.length > 0 && !activeAccounts.length && <p className="alert full-width">Cadastre uma conta ativa antes de lançar transações. <Link href="/accounts">Ir para contas</Link>.</p>}
-          {formState.type === 'TRANSFER' && sourceAccounts.length > 0 && !destinationAccounts.length && (
-            <p className="alert full-width">Para transferir, é necessário ter outra conta ativa na mesma moeda da conta de origem.</p>
-          )}
-        </form>
-      </section>
-    );
-  }
+  const isFormOpen = mode !== 'list';
+  const isEditing = mode === 'edit';
 
   return (
     <section className="stack" aria-labelledby="transactions-title">
       <div className="page-header">
         <div>
           <h1 id="transactions-title">Transações financeiras</h1>
-          <p className="muted">Registre receitas, despesas, transferências e ajustes. Cada lançamento atualiza o saldo automaticamente.</p>
+          <p className="muted">Registre receitas, despesas, transferências e ajustes. Cada lançamento atualiza saldo, categoria e tags.</p>
         </div>
         <button className="btn" type="button" onClick={openCreateForm}>Adicionar transação</button>
       </div>
 
-      {error && <p className="alert">{error}</p>}
+      {error && !isFormOpen && !isCategoryModalOpen && <p className="alert">{error}</p>}
       {success && <p className="alert success">{success}</p>}
 
       <form className="card compact-filter-grid" onSubmit={applyFilters}>
@@ -448,7 +474,14 @@ export function TransactionManager() {
         </label>
         <label>
           Categoria
-          <input value={filters.categoryName} onChange={(event) => updateFilter('categoryName', event.target.value)} placeholder="Buscar categoria" />
+          <select value={filters.categoryId} onChange={(event) => updateFilter('categoryId', event.target.value)}>
+            <option value="">Todas</option>
+            {filterCategories.map((category) => <option key={category.id} value={category.id}>{categoryLabel(category)}</option>)}
+          </select>
+        </label>
+        <label>
+          Tag
+          <input value={filters.tag} onChange={(event) => updateFilter('tag', event.target.value)} placeholder="Buscar tag" />
         </label>
         <label>
           De
@@ -461,6 +494,7 @@ export function TransactionManager() {
         <div className="actions filter-actions">
           <button className="btn small" type="submit">Filtrar</button>
           <button className="btn secondary small" type="button" onClick={() => void clearFilters()}>Limpar</button>
+          <Link className="btn secondary small" href="/categories">Relatório</Link>
         </div>
       </form>
 
@@ -487,8 +521,9 @@ export function TransactionManager() {
 
               <div className="transaction-card-details">
                 <span className="badge">{typeLabel(transaction.type)}</span>
-                <span>{transaction.categoryName || 'Sem categoria'}</span>
+                <span>{transactionCategoryLabel(transaction, categoriesById)}</span>
                 <span>{transaction.currencyCode}</span>
+                {transaction.tags?.map((item) => <span className="badge light" key={item.tag.id}>{item.tag.name}</span>)}
               </div>
 
               {transaction.notes && <p className="muted transaction-notes">{transaction.notes}</p>}
@@ -499,6 +534,160 @@ export function TransactionManager() {
               </div>
             </article>
           ))}
+        </div>
+      )}
+
+      {isFormOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="transaction-form-title">
+            <div className="modal-header">
+              <div>
+                <h2 id="transaction-form-title">{isEditing ? 'Editar transação' : 'Adicionar transação'}</h2>
+                <p className="muted">Receitas aumentam saldo, despesas reduzem saldo, transferências movem saldo entre contas da mesma moeda.</p>
+              </div>
+              <button className="btn secondary small" type="button" onClick={cancelForm} disabled={isSubmitting} aria-label="Fechar formulário de transação">Fechar</button>
+            </div>
+
+            {error && <p className="alert">{error}</p>}
+
+            <form className="form-grid" onSubmit={saveTransaction}>
+              <label>
+                Tipo
+                <select value={formState.type} onChange={(event) => updateFormField('type', event.target.value)} required disabled={isSubmitting}>
+                  {transactionTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+                </select>
+              </label>
+
+              <label>
+                Perfil financeiro
+                <select value={formState.financialProfileId} onChange={(event) => updateFormProfile(event.target.value)} required disabled={isSubmitting || !profiles.length}>
+                  <option value="" disabled>Selecione um perfil</option>
+                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+                </select>
+              </label>
+
+              <label>
+                Conta
+                <select value={formState.accountId} onChange={(event) => updateFormAccount(event.target.value)} required disabled={isSubmitting || !sourceAccounts.length}>
+                  <option value="" disabled>Selecione uma conta</option>
+                  {sourceAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} - {account.currencyCode}</option>)}
+                </select>
+              </label>
+
+              {formState.type === 'TRANSFER' && (
+                <label>
+                  Conta de destino
+                  <select value={formState.destinationAccountId} onChange={(event) => updateFormField('destinationAccountId', event.target.value)} required disabled={isSubmitting || !destinationAccounts.length}>
+                    <option value="" disabled>Selecione o destino</option>
+                    {destinationAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} - {account.currencyCode}</option>)}
+                  </select>
+                </label>
+              )}
+
+              <label>
+                Valor
+                <input
+                  value={formatMoneyInput(formState.amount, formCurrency)}
+                  onChange={(event) => updateFormField('amount', parseMoneyInputToDecimal(event.target.value))}
+                  type="text"
+                  inputMode="decimal"
+                  placeholder={moneyInputPlaceholder(formCurrency)}
+                  required
+                  disabled={isSubmitting}
+                  autoFocus
+                />
+              </label>
+
+              <label>
+                Data
+                <input value={formState.occurredAt} onChange={(event) => updateFormField('occurredAt', event.target.value)} type="date" required disabled={isSubmitting} />
+              </label>
+
+              <label className="full-width">
+                Descrição
+                <input value={formState.description} onChange={(event) => updateFormField('description', event.target.value)} minLength={2} maxLength={160} placeholder="Ex.: Mercado, salário, transferência para reserva" required disabled={isSubmitting} />
+              </label>
+
+              <div className="field-stack">
+                <div className="field-label-row">
+                  <span>Categoria</span>
+                  <button className="btn secondary small inline-action" type="button" onClick={openInlineCategoryModal} disabled={isSubmitting || !formState.financialProfileId}>+ nova categoria</button>
+                </div>
+                <select value={formState.categoryId} onChange={(event) => updateFormField('categoryId', event.target.value)} disabled={isSubmitting} aria-label="Categoria">
+                  <option value="">Sem categoria</option>
+                  {formCategories.map((category) => <option key={category.id} value={category.id}>{categoryLabel(category)}</option>)}
+                </select>
+                <small className="muted">Crie uma categoria sem sair do lançamento.</small>
+              </div>
+
+              <label>
+                Tags livres
+                <input value={formState.tagsText} onChange={(event) => updateFormField('tagsText', event.target.value)} maxLength={240} placeholder="Ex.: recorrente, imposto, reembolso" disabled={isSubmitting} />
+              </label>
+
+              <label className="full-width">
+                Observações
+                <input value={formState.notes} onChange={(event) => updateFormField('notes', event.target.value)} maxLength={240} placeholder="Opcional" disabled={isSubmitting} />
+              </label>
+
+              <div className="actions full-width">
+                <button className="btn" type="submit" disabled={isSubmitting || !profiles.length || !sourceAccounts.length || (formState.type === 'TRANSFER' && !destinationAccounts.length)}>
+                  {isSubmitting ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Adicionar transação'}
+                </button>
+                <button className="btn secondary" type="button" onClick={cancelForm} disabled={isSubmitting}>Cancelar</button>
+              </div>
+
+              {!profiles.length && <p className="alert full-width">Cadastre um perfil financeiro antes de lançar transações. <Link href="/profiles">Ir para perfis</Link>.</p>}
+              {profiles.length > 0 && !activeAccounts.length && <p className="alert full-width">Cadastre uma conta ativa antes de lançar transações. <Link href="/accounts">Ir para contas</Link>.</p>}
+              {formState.type === 'TRANSFER' && sourceAccounts.length > 0 && !destinationAccounts.length && (
+                <p className="alert full-width">Para transferir, é necessário ter outra conta ativa na mesma moeda da conta de origem.</p>
+              )}
+            </form>
+          </section>
+        </div>
+      )}
+
+      {isCategoryModalOpen && (
+        <div className="modal-backdrop modal-backdrop-stacked" role="presentation">
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="inline-category-title">
+            <div className="modal-header">
+              <div>
+                <h2 id="inline-category-title">Nova categoria</h2>
+                <p className="muted">Crie uma categoria ou subcategoria para usar nesta transação.</p>
+              </div>
+              <button className="btn secondary small" type="button" onClick={closeInlineCategoryModal} disabled={isCategorySubmitting} aria-label="Fechar modal de nova categoria">Fechar</button>
+            </div>
+
+            {categoryModalError && <p className="alert">{categoryModalError}</p>}
+
+            <form className="form-grid" onSubmit={saveInlineCategory}>
+              <label>
+                Perfil financeiro
+                <select value={categoryFormState.financialProfileId} onChange={(event) => updateInlineCategoryField('financialProfileId', event.target.value)} required disabled={isCategorySubmitting || !profiles.length}>
+                  <option value="" disabled>Selecione um perfil</option>
+                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+                </select>
+              </label>
+
+              <label>
+                Categoria principal
+                <select value={categoryFormState.parentId} onChange={(event) => updateInlineCategoryField('parentId', event.target.value)} disabled={isCategorySubmitting}>
+                  <option value="">Nenhuma, será categoria principal</option>
+                  {inlineRootCategoryOptions.map((category) => <option key={category.id} value={category.id}>{categoryLabel(category)}</option>)}
+                </select>
+              </label>
+
+              <label className="full-width">
+                Nome
+                <input value={categoryFormState.name} onChange={(event) => updateInlineCategoryField('name', event.target.value)} minLength={2} maxLength={80} placeholder="Ex.: Saúde, Supermercado, IVA" required disabled={isCategorySubmitting} autoFocus />
+              </label>
+
+              <div className="actions full-width">
+                <button className="btn" type="submit" disabled={isCategorySubmitting || !categoryFormState.financialProfileId}>{isCategorySubmitting ? 'Criando...' : 'Criar e selecionar'}</button>
+                <button className="btn secondary" type="button" onClick={closeInlineCategoryModal} disabled={isCategorySubmitting}>Cancelar</button>
+              </div>
+            </form>
+          </section>
         </div>
       )}
     </section>
