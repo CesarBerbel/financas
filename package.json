@@ -12,7 +12,13 @@
     "prisma:validate": "prisma validate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "test:unit": "pnpm --filter api test && pnpm --filter web test && pnpm --filter @financas/shared test",
+    "test:e2e": "pnpm --filter api test:e2e",
+    "ci:static": "pnpm prisma:validate && pnpm prisma:generate && pnpm --filter @financas/shared build && pnpm lint && pnpm typecheck",
+    "ci:test": "pnpm test:unit && pnpm test:e2e",
+    "ci:build": "pnpm build",
+    "prisma:migrate:deploy": "prisma migrate deploy"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
