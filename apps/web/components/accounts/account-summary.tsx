@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { authApi } from '../../lib/api';
+import { authApi, getApiErrorMessage } from '../../lib/api';
 
 type Summary = {
   accountCount: number;
@@ -20,7 +20,7 @@ export function AccountSummary() {
   useEffect(() => {
     authApi('/accounts/summary')
       .then(setSummary)
-      .catch(() => setError('Não foi possível carregar o resumo de saldos.'));
+      .catch((error) => setError(`Não foi possível carregar o resumo de saldos. ${getApiErrorMessage(error, 'Verifique se a API está rodando e se a migration da Fase 1 foi aplicada.')}`));
   }, []);
 
   if (error) return <p className="alert">{error}</p>;

@@ -82,7 +82,7 @@ model FinancialProfile {
   currency     Currency               @relation(fields: [baseCurrency], references: [code])
   accounts     Account[]
 
-  @@unique([userId, type])
+  @@index([userId, type])
   @@index([userId, status])
 }
 

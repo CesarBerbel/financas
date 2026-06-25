@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { authApi } from '../../lib/api';
+import { authApi, getApiErrorMessage, isUnauthorized } from '../../lib/api';
 
 type Profile = { id: string; name: string; type: string; baseCurrency: string; status: string };
 type Account = {
@@ -36,6 +37,7 @@ export function AccountManager() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [isReloadingProfiles, setIsReloadingProfiles] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -43,24 +45,76 @@ export function AccountManager() {
 
   const selectedProfile = useMemo(() => profiles.find((profile) => profile.id === selectedProfileId), [profiles, selectedProfileId]);
 
+  const normalizeProfiles = useCallback((result: unknown): Profile[] => {
+    return Array.isArray(result) ? result.filter((profile: Profile) => profile.status === 'ACTIVE') : [];
+  }, []);
+
+  const applyProfiles = useCallback((activeProfiles: Profile[]) => {
+    setProfiles(activeProfiles);
+    setSelectedProfileId((current) => activeProfiles.some((profile) => profile.id === current) ? current : activeProfiles[0]?.id || '');
+  }, []);
+
+  const reloadProfiles = useCallback(async () => {
+    setIsReloadingProfiles(true);
+    setError('');
+    try {
+      const profileResult = await authApi('/financial-profiles');
+      applyProfiles(normalizeProfiles(profileResult));
+    } catch (error) {
+      setError(
+        isUnauthorized(error)
+          ? 'Sessão expirada. Entre novamente para atualizar os perfis financeiros.'
+          : `Não foi possível atualizar os perfis financeiros. ${getApiErrorMessage(error, 'Tente novamente em instantes.')}`,
+      );
+    } finally {
+      setIsReloadingProfiles(false);
+    }
+  }, [applyProfiles, normalizeProfiles]);
+
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError('');
+
     try {
-      const [profileResult, accountResult] = await Promise.all([authApi('/financial-profiles'), authApi('/accounts')]);
-      setProfiles(profileResult);
-      setAccounts(accountResult);
-      setSelectedProfileId((current) => current || profileResult[0]?.id || '');
-    } catch {
-      setError('Não foi possível carregar contas. Entre novamente e tente outra vez.');
+      const profileResult = await authApi('/financial-profiles');
+      applyProfiles(normalizeProfiles(profileResult));
+    } catch (error) {
+      setError(
+        isUnauthorized(error)
+          ? 'Sessão expirada. Entre novamente para carregar seus perfis financeiros.'
+          : `Não foi possível carregar perfis financeiros. ${getApiErrorMessage(error, 'Tente novamente em instantes.')}`,
+      );
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const accountResult = await authApi('/accounts');
+      setAccounts(Array.isArray(accountResult) ? accountResult : []);
+    } catch (error) {
+      setAccounts([]);
+      setError(
+        isUnauthorized(error)
+          ? 'Sessão expirada. Entre novamente para carregar suas contas.'
+          : `Não foi possível carregar contas. ${getApiErrorMessage(error, 'Verifique se a API está rodando e se a migration da Fase 1 foi aplicada.')}`,
+      );
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [applyProfiles, normalizeProfiles]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    function handleFocus() {
+      void reloadProfiles();
+    }
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [reloadProfiles]);
 
   async function createAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -77,8 +131,8 @@ export function AccountManager() {
       setSuccess('Conta criada com sucesso.');
       form.reset();
       await loadData();
-    } catch {
-      setError('Não foi possível criar a conta. Verifique os campos e tente novamente.');
+    } catch (error) {
+      setError(`Não foi possível criar a conta. ${getApiErrorMessage(error, 'Verifique os campos e tente novamente.')}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -91,8 +145,8 @@ export function AccountManager() {
       await authApi(`/accounts/${accountId}/${action}`, { method: 'POST' });
       setSuccess(action === 'archive' ? 'Conta arquivada.' : 'Conta fechada.');
       await loadData();
-    } catch {
-      setError('Não foi possível alterar o status da conta.');
+    } catch (error) {
+      setError(`Não foi possível alterar o status da conta. ${getApiErrorMessage(error, 'Tente novamente.')}`);
     }
   }
 
@@ -100,9 +154,14 @@ export function AccountManager() {
 
   return (
     <section className="stack" aria-labelledby="accounts-title">
-      <div>
-        <h1 id="accounts-title">Contas financeiras</h1>
-        <p className="muted">Cadastre contas por perfil, moeda e finalidade. Cada conta permanece isolada no perfil financeiro selecionado.</p>
+      <div className="page-header">
+        <div>
+          <h1 id="accounts-title">Contas financeiras</h1>
+          <p className="muted">Cadastre contas por perfil, moeda e finalidade. Cada conta permanece isolada no perfil financeiro selecionado.</p>
+        </div>
+        <button className="btn secondary" type="button" onClick={() => void reloadProfiles()} disabled={isReloadingProfiles}>
+          {isReloadingProfiles ? 'Atualizando...' : 'Atualizar perfis'}
+        </button>
       </div>
 
       {error && <p className="alert">{error}</p>}
@@ -111,9 +170,10 @@ export function AccountManager() {
       <form className="card form-grid" onSubmit={createAccount}>
         <label>
           Perfil financeiro
-          <select name="financialProfileId" value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} required disabled={isSubmitting}>
+          <select name="financialProfileId" value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} required disabled={isSubmitting || !profiles.length}>
+            <option value="" disabled>Selecione um perfil</option>
             {profiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>{profile.name}</option>
+              <option key={profile.id} value={profile.id}>{profile.name} - {profile.baseCurrency}</option>
             ))}
           </select>
         </label>
@@ -132,7 +192,7 @@ export function AccountManager() {
 
         <label>
           Moeda
-          <select name="currencyCode" defaultValue={selectedProfile?.baseCurrency ?? 'EUR'} required disabled={isSubmitting}>
+          <select key={selectedProfile?.id ?? 'no-profile'} name="currencyCode" defaultValue={selectedProfile?.baseCurrency ?? 'EUR'} required disabled={isSubmitting || !profiles.length}>
             <option value="EUR">EUR</option>
             <option value="BRL">BRL</option>
           </select>
@@ -148,7 +208,13 @@ export function AccountManager() {
           <input name="description" maxLength={240} placeholder="Opcional" disabled={isSubmitting} />
         </label>
 
-        <button className="btn full-width" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Salvando...' : 'Criar conta'}</button>
+        <button className="btn full-width" type="submit" disabled={isSubmitting || !profiles.length}>{isSubmitting ? 'Salvando...' : 'Criar conta'}</button>
+        {!profiles.length && (
+          <p className="alert full-width">
+            Cadastre pelo menos um perfil financeiro ativo antes de criar contas.{' '}
+            <Link href="/profiles">Ir para gerenciar perfis</Link>.
+          </p>
+        )}
       </form>
 
       {!accounts.length ? (
