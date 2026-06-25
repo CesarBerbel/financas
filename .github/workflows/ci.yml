@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+      - 'fix/**'
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-unit:
+    name: Static validation, unit tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://financas:financas_pwd@localhost:5432/financas_ci?schema=public
+      JWT_SECRET: ci-secret-not-for-production
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Validate Prisma schema
+        run: pnpm prisma:validate
+
+      - name: Generate Prisma client
+        run: pnpm prisma:generate
+
+      - name: Build shared package for workspace type resolution
+        run: pnpm --filter @financas/shared build
+
+      - name: Lint all packages
+        run: pnpm lint
+
+      - name: Typecheck all packages
+        run: pnpm typecheck
+
+      - name: Unit and component tests
+        run: pnpm test:unit
+
+      - name: Build all packages
+        run: pnpm build
+
+  api-e2e:
+    name: API e2e with PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: static-and-unit
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: financas
+          POSTGRES_PASSWORD: financas_test_pwd
+          POSTGRES_DB: financas_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U financas -d financas_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://financas:financas_test_pwd@localhost:5432/financas_test?schema=public
+      JWT_SECRET: ci-secret-not-for-production
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Apply Prisma migrations
+        run: pnpm prisma:migrate:deploy
+
+      - name: Seed reference currencies
+        run: pnpm seed
+
+      - name: Run API e2e tests
+        run: pnpm test:e2e

@@ -265,3 +265,49 @@ Sem migration neste ajuste.
 As telas operacionais agora mantêm suas listas como contexto e abrem os formulários de criação/edição em modal para perfis financeiros, contas, categorias e transações. Filtros e relatórios permanecem inline por não serem formulários de criação/edição de entidades.
 
 Sem migration neste ajuste.
+
+## Hardening QA antes da Release 2
+
+A Release 1 agora possui uma base de testes e CI antes do avanço para a Release 2.
+
+Novos comandos principais:
+
+```powershell
+pnpm prisma:validate
+pnpm prisma:generate
+pnpm --filter @financas/shared build
+pnpm lint
+pnpm typecheck
+pnpm test:unit
+pnpm test:e2e
+pnpm build
+```
+
+Para rodar E2E local com banco separado:
+
+```powershell
+$env:DATABASE_URL="postgresql://financas:financas_test_pwd@localhost:5436/financas_test?schema=public"
+docker compose -f docker-compose.test.yml up -d
+pnpm prisma:migrate:deploy
+pnpm seed
+pnpm test:e2e
+Remove-Item Env:DATABASE_URL
+```
+
+Para resetar apenas o banco de teste:
+
+```powershell
+# este comando apaga dados do banco de teste
+$env:DATABASE_URL="postgresql://financas:financas_test_pwd@localhost:5436/financas_test?schema=public"
+docker compose -f docker-compose.test.yml down -v
+
+docker compose -f docker-compose.test.yml up -d
+pnpm prisma:migrate:deploy
+pnpm seed
+pnpm test:e2e
+Remove-Item Env:DATABASE_URL
+```
+
+A CI executa validação estática, testes unitários/componentes, build e E2E da API com PostgreSQL real.
+
+Observação: o projeto ainda não tinha `pnpm-lock.yaml` versionado. A CI usa `pnpm install --no-frozen-lockfile`; após a primeira instalação local, versione o lockfile para permitir endurecer a CI com `--frozen-lockfile`.
