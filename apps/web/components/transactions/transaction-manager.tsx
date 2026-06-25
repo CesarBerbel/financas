@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { authApi, getApiErrorMessage, isUnauthorized } from '../../lib/api';
+import { formatMoneyInput, moneyInputPlaceholder, parseMoneyInputToDecimal } from '../../lib/money';
 
 type Profile = { id: string; name: string; type: string; baseCurrency: string; status: string };
 type Account = {
@@ -65,7 +66,7 @@ const emptyForm: TransactionFormState = {
   accountId: '',
   destinationAccountId: '',
   type: 'EXPENSE',
-  amount: '0.00',
+  amount: '',
   occurredAt: new Date().toISOString().slice(0, 10),
   description: '',
   categoryName: '',
@@ -125,6 +126,7 @@ export function TransactionManager() {
 
   const activeAccounts = useMemo(() => accounts.filter((account) => account.status === 'ACTIVE'), [accounts]);
   const selectedSourceAccount = useMemo(() => activeAccounts.find((account) => account.id === formState.accountId), [activeAccounts, formState.accountId]);
+  const formCurrency = selectedSourceAccount?.currencyCode ?? profiles.find((profile) => profile.id === formState.financialProfileId)?.baseCurrency ?? 'EUR';
   const sourceAccounts = useMemo(
     () => activeAccounts.filter((account) => !formState.financialProfileId || account.financialProfileId === formState.financialProfileId),
     [activeAccounts, formState.financialProfileId],
@@ -366,7 +368,15 @@ export function TransactionManager() {
 
           <label>
             Valor
-            <input value={formState.amount} onChange={(event) => updateFormField('amount', event.target.value)} type="number" step="0.01" required disabled={isSubmitting} />
+            <input
+              value={formatMoneyInput(formState.amount, formCurrency)}
+              onChange={(event) => updateFormField('amount', parseMoneyInputToDecimal(event.target.value))}
+              type="text"
+              inputMode="decimal"
+              placeholder={moneyInputPlaceholder(formCurrency)}
+              required
+              disabled={isSubmitting}
+            />
           </label>
 
           <label>

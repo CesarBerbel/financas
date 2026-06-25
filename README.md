@@ -200,3 +200,9 @@ pnpm --filter web typecheck
 pnpm --filter api test
 pnpm --filter web build
 ```
+
+## Ajuste UX - máscara monetária e fechamento de conta
+
+Os campos monetários de contas e transações agora exibem máscara com símbolo da moeda e placeholder no formato `símbolo da moeda 0,00`. O fechamento de conta exige confirmação explícita antes de chamar a API.
+
+Sem migration neste ajuste.

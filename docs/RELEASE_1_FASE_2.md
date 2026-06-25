@@ -65,3 +65,11 @@ pnpm --filter web build
 git add .
 git commit -m "feat(finance): concluir fase 2 transacoes financeiras"
 ```
+
+## Ajuste UX - máscara monetária e confirmação de fechamento
+
+- Campos de valor agora usam máscara monetária com símbolo da moeda.
+- Placeholder dos campos monetários usa o padrão `símbolo da moeda 0,00`, por exemplo `€ 0,00`, `R$ 0,00` e `US$ 0,00`.
+- O valor continua sendo enviado ao backend em formato decimal normalizado, como `123.45`.
+- A tela de contas agora pede confirmação antes de fechar uma conta.
+- Sem migration neste ajuste.

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { authApi, getApiErrorMessage, isUnauthorized } from '../../lib/api';
+import { formatMoneyInput, moneyInputPlaceholder, parseMoneyInputToDecimal } from '../../lib/money';
 
 type Profile = { id: string; name: string; type: string; baseCurrency: string; status: string };
 type Account = {
@@ -53,7 +54,7 @@ const emptyForm: AccountFormState = {
   name: '',
   type: 'CHECKING',
   currencyCode: 'EUR',
-  initialBalance: '0.00',
+  initialBalance: '',
   description: '',
 };
 
@@ -348,6 +349,10 @@ export function AccountManager() {
   }
 
   async function changeStatus(accountId: string, action: 'archive' | 'unarchive' | 'close') {
+    if (action === 'close' && !window.confirm('Tem certeza que deseja fechar esta conta? Ela não aparecerá mais nas listas operacionais e ficará disponível futuramente apenas em relatórios.')) {
+      return;
+    }
+
     const successMessages = {
       archive: 'Conta arquivada.',
       unarchive: 'Conta desarquivada.',
@@ -434,10 +439,11 @@ export function AccountManager() {
           <label>
             Saldo inicial
             <input
-              value={formState.initialBalance}
-              onChange={(event) => updateFormField('initialBalance', event.target.value)}
-              type="number"
-              step="0.01"
+              value={formatMoneyInput(formState.initialBalance, formState.currencyCode)}
+              onChange={(event) => updateFormField('initialBalance', parseMoneyInputToDecimal(event.target.value))}
+              type="text"
+              inputMode="decimal"
+              placeholder={moneyInputPlaceholder(formState.currencyCode)}
               required
               disabled={isSubmitting || isEditing}
             />
